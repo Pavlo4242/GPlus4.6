@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Gradle: com.github.tonyofrancis.Fetch:fetch2:3.4.1@aar" external-system-id="GRADLE">
+    <CLASSES>
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/8c376eca03a19012a7de76d542e7fec0/transformed/fetch2-3.4.1/res" />
+      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/8c376eca03a19012a7de76d542e7fec0/transformed/fetch2-3.4.1/jars/classes.jar!/" />
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/8c376eca03a19012a7de76d542e7fec0/transformed/fetch2-3.4.1/AndroidManifest.xml" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.github.tonyofrancis.Fetch/fetch2/3.4.1/c0a24400640d40321c438265f569b06555d65de/fetch2-3.4.1-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>

@@ -1,0 +1,14 @@
+<component name="libraryTable">
+  <library name="Gradle: io.github.diamondminer88:zip-android:2.2.0@aar" external-system-id="GRADLE">
+    <CLASSES>
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/b6c8878695beda97e30da615ed9f88dd/transformed/zip-android-2.2.0/AndroidManifest.xml" />
+      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/b6c8878695beda97e30da615ed9f88dd/transformed/zip-android-2.2.0/jars/classes.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/io.github.diamondminer88/zip-android/2.2.0/487a5c2bc696fdaef6878f7dcd6ea487a9770a59/zip-android-2.2.0-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/io.github.diamondminer88/zip-android/2.2.0/e318cfd152a4e154cab2c2b0c5c76409f178ff07/zip-android-2.2.0-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>

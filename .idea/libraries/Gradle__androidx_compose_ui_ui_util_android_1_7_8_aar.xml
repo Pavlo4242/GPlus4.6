@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="Gradle: androidx.compose.ui:ui-util-android:1.7.8@aar" external-system-id="GRADLE">
+    <CLASSES>
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/30ba74f3772b7e30c99b73c065a7046b/transformed/ui-util-release/res" />
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/30ba74f3772b7e30c99b73c065a7046b/transformed/ui-util-release/AndroidManifest.xml" />
+      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/30ba74f3772b7e30c99b73c065a7046b/transformed/ui-util-release/jars/classes.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.compose.ui/ui-util-android/1.7.8/8533d5b40174e5cbd6b70ad99710429e7eadbb64/ui-util-android-1.7.8-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>

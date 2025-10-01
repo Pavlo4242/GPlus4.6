@@ -1,0 +1,14 @@
+<component name="libraryTable">
+  <library name="Gradle: io.coil-kt.coil3:coil-network-okhttp-jvm:3.1.0" type="java-imported" external-system-id="GRADLE">
+    <properties groupId="io.coil-kt.coil3" artifactId="coil-network-okhttp-jvm" version="3.1.0" baseVersion="3.1.0" />
+    <CLASSES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/io.coil-kt.coil3/coil-network-okhttp-jvm/3.1.0/e7dbaa82df49fa511e99631c41beb0f5c5d10eab/coil-network-okhttp-jvm-3.1.0.jar!/" />
+    </CLASSES>
+    <JAVADOC>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/io.coil-kt.coil3/coil-network-okhttp-jvm/3.1.0/6c07a476d538a0fc3410187988b82c4e54d0f236/coil-network-okhttp-jvm-3.1.0-javadoc.jar!/" />
+    </JAVADOC>
+    <SOURCES>
+      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/io.coil-kt.coil3/coil-network-okhttp-jvm/3.1.0/473291c6ced65fe889b5f5533c59e2f8d23da9a2/coil-network-okhttp-jvm-3.1.0-sources.jar!/" />
+    </SOURCES>
+  </library>
+</component>
