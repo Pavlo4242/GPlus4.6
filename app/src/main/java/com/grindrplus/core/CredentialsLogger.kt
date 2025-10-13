@@ -2,7 +2,6 @@ package com.grindrplus.core
 
 import android.os.Environment
 import android.util.Base64
-import com.grindrplus.GrindrPlus.context
 import org.json.JSONObject
 import java.io.File
 
@@ -11,9 +10,6 @@ object CredentialsLogger {
         Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
         "GrindrAccess_Info.txt"
     )
-
-    // Define the private log file here, at the object level.
-    private val credentialsFilePrivate = File(context.filesDir, "GrindrAccess_Info.txt")
 
     // Cache the last token to avoid writing duplicate info
     private var lastAuthToken: String? = null
@@ -25,7 +21,6 @@ object CredentialsLogger {
         return try {
             val parts = token.split(".")
             if (parts.size < 2) return null
-
             val payload = String(Base64.decode(parts[1], Base64.URL_SAFE), Charsets.UTF_8)
             JSONObject(payload).getString("profileId")
         } catch (e: Exception) {
@@ -60,15 +55,8 @@ object CredentialsLogger {
                 append("user-agent: $userAgent\n")
             }
 
-            if (!logFile.exists()) {
-                logFile.createNewFile()
-                logFile.setReadable(true, true)
-                logFile.setWritable(true, true)
-            }
-
-            // Overwrite the files with the latest credentials
+            // Overwrite the file with the latest credentials
             logFile.writeText(logMessage)
-            credentialsFilePrivate.writeText(logMessage) // Use the property from this object
 
             // Update the cache
             lastAuthToken = cleanAuthToken

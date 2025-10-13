@@ -6,7 +6,7 @@ import com.grindrplus.hooks.AllowScreenshots
 import com.grindrplus.hooks.AntiBlock
 import com.grindrplus.hooks.AntiDetection
 import com.grindrplus.hooks.BanManagement
-import com.grindrplus.hooks.ChatBackup
+import com.grindrplus.hooks.ChatBackupHook
 import com.grindrplus.hooks.ChatIndicators
 import com.grindrplus.hooks.ChatTerminal
 import com.grindrplus.hooks.DisableAnalytics
@@ -68,8 +68,8 @@ class HookManager {
                 QuickBlock(),
                 EmptyCalls(),
                 UnlimitedAlbums()
-                //PreventChatDeletion(),
-                //ChatBackup()
+                        //PreventChatDeletion(),
+                //ChatBackupHook()
             )
 
             hookList.forEach { hook ->

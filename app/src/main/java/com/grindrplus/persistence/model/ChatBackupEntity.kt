@@ -31,4 +31,3 @@ data class ChatBackup(
     val timestamp: Long,
     val type: String
 )
-

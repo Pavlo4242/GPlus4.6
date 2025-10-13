@@ -1,3 +1,5 @@
+package com.grindrplus.persistence.model
+
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -5,8 +7,8 @@ import androidx.room.PrimaryKey
 data class ConversationBackup(
     @PrimaryKey
     val conversation_id: String,
-    val name: String,
+    val name: String = "",
     val last_message_timestamp: Long,
-    val unread: Int
+    val unread: Int = 0
 )
 

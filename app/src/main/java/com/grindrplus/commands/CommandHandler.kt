@@ -6,6 +6,7 @@ import androidx.appcompat.widget.AppCompatTextView
 import android.graphics.Color
 import com.grindrplus.GrindrPlus
 
+
 class CommandHandler(
     recipient: String,
     sender: String = ""
@@ -17,6 +18,8 @@ class CommandHandler(
         commandModules.add(Profile(recipient, sender))
         commandModules.add(Utils(recipient, sender))
         commandModules.add(Database(recipient, sender))
+        commandModules.add(MediaManager(recipient, sender))
+        commandModules.add(Scammer(recipient, sender))
     }
 
     fun handle(input: String) {

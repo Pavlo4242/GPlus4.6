@@ -17,6 +17,7 @@ android {
         val grindrVersionCode = listOf(144041)
         val gitCommitHash = getGitCommitHash() ?: "unknown"
 
+
         applicationId = "com.grindrplus"
         minSdk = 26
         targetSdk = 34
@@ -32,13 +33,25 @@ android {
         buildConfigField(
             "String[]",
             "TARGET_GRINDR_VERSION_NAMES",
-            grindrVersionName.let { it.joinToString(prefix = "{", separator = ", ", postfix = "}") { version -> "\"$version\"" } }
+            grindrVersionName.let {
+                it.joinToString(
+                    prefix = "{",
+                    separator = ", ",
+                    postfix = "}"
+                ) { version -> "\"$version\"" }
+            }
         )
 
         buildConfigField(
             "int[]",
             "TARGET_GRINDR_VERSION_CODES",
-            grindrVersionCode.let { it.joinToString(prefix = "{", separator = ", ", postfix = "}") { code -> "$code" } }
+            grindrVersionCode.let {
+                it.joinToString(
+                    prefix = "{",
+                    separator = ", ",
+                    postfix = "}"
+                ) { code -> "$code" }
+            }
         )
     }
 
@@ -78,125 +91,151 @@ android {
             val sanitizedVersionName = versionName.replace(Regex("[^a-zA-Z0-9._-]"), "_").trim('_')
             (this as BaseVariantOutputImpl).outputFileName =
                 "GPlus_v${sanitizedVersionName}-${name}.apk"
+
+            assembleProvider.get().doLast {
+                file(outputFile).copyTo(
+                    file("D:/Downloads/${if (name == "debug") "NEWFILENAME_DEBUG.APK" else "NEWFILENAME_RELEASE.APK"}"),
+                    true
+                )
+            }
         }
     }
-}
 
-dependencies {
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.appcompat)
-    implementation(libs.androidx.coordinatorlayout)
-    implementation(libs.material)
-    implementation(libs.square.okhttp)
-    implementation(libs.androidx.datastore.preferences)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.runtime.android)
-    ksp(libs.androidx.room.compiler)
-    implementation(libs.androidx.room.ktx)
-    compileOnly(fileTree("libs") { include("*.jar") })
-    implementation(fileTree("libs") { include("lspatch.jar") })
+    dependencies {
+        implementation(libs.androidx.core.ktx)
+        implementation(libs.androidx.lifecycle.runtime.ktx)
+        implementation(libs.androidx.appcompat)
+        implementation(libs.androidx.coordinatorlayout)
+        implementation(libs.material)
+        implementation(libs.square.okhttp)
+        implementation(libs.androidx.datastore.preferences)
+        implementation(libs.androidx.room.runtime)
+        implementation(libs.androidx.runtime.android)
+        ksp(libs.androidx.room.compiler)
+        implementation(libs.androidx.room.ktx)
+        compileOnly(fileTree("libs") { include("*.jar") })
+        implementation(fileTree("libs") { include("lspatch.jar") })
 
-    val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
-    implementation(composeBom)
+        val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
+        implementation(composeBom)
 
-    implementation(libs.androidx.material3)
+        implementation(libs.androidx.material3)
 
-    implementation(libs.androidx.ui.tooling.preview)
-    debugImplementation(libs.androidx.ui.tooling)
+        implementation(libs.androidx.ui.tooling.preview)
+        debugImplementation(libs.androidx.ui.tooling)
 
-    implementation(libs.androidx.material.icons.core)
-    implementation(libs.androidx.material.icons.extended)
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.navigation.compose)
-    implementation(libs.coil.compose)
-    implementation(libs.coil.network.okhttp)
-    implementation(libs.compose.markdown)
-    implementation(libs.plausible.android.sdk)
-    implementation(libs.timber)
-    implementation(libs.fetch2)
-    implementation(libs.fetch2okhttp)
-    implementation(libs.rootbeer.lib)
-    implementation(libs.zip.android) {
-        artifact {
-            type = "aar"
+        implementation(libs.androidx.material.icons.core)
+        implementation(libs.androidx.material.icons.extended)
+        implementation(libs.androidx.activity.compose)
+        implementation(libs.androidx.navigation.compose)
+        implementation(libs.coil.compose)
+        implementation(libs.coil.network.okhttp)
+        implementation(libs.compose.markdown)
+        implementation(libs.plausible.android.sdk)
+        implementation(libs.timber)
+        implementation(libs.fetch2)
+        implementation(libs.fetch2okhttp)
+        implementation(libs.rootbeer.lib)
+        implementation(libs.zip.android) {
+            artifact {
+                type = "aar"
+            }
         }
-    }
-    implementation(libs.zipalign.java)
-    implementation(libs.coil.gif)
-    implementation(libs.arsclib)
-    compileOnly(libs.bcprov.jdk18on)
+        implementation(libs.zipalign.java)
+        implementation(libs.coil.gif)
+        implementation(libs.arsclib)
+        compileOnly(libs.bcprov.jdk18on)
 
-    // Dependencies for local unit tests (ExampleUnitTest.java)
-    testImplementation("junit:junit:4.13.2")
+        // Dependencies for local unit tests (ExampleUnitTest.java)
+        testImplementation("junit:junit:4.13.2")
 
-    // Dependencies for Android instrumented tests (ExampleInstrumentedTest.java)
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-    androidTestImplementation("androidx.test:runner:1.5.2") // Added to ensure correct AndroidJUnitRunner functionality
+        // Dependencies for Android instrumented tests (ExampleInstrumentedTest.java)
+        androidTestImplementation("androidx.test.ext:junit:1.1.5")
+        androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+        androidTestImplementation("androidx.test:runner:1.5.2") // Added to ensure correct AndroidJUnitRunner functionality
 
-}
-
-tasks.register("setupLSPatch") {
-    doLast {
-        val jarUrl = Regex("https:\\/\\/nightly\\.link\\/JingMatrix\\/LSPatch\\/workflows\\/main\\/master\\/lspatch-debug-[^.]+\\.zip").find(
-            URI("https://nightly.link/JingMatrix/LSPatch/workflows/main/master?preview").toURL().readText()
-        )!!.value
-
-        providers.exec {
-            commandLine("mkdir", "-p", "/tmp/lspatch")
-        }.result.get()
-
-        providers.exec {
-            commandLine("wget", jarUrl, "-O", "/tmp/lspatch/lspatch.zip")
-        }.result.get()
-
-        providers.exec {
-            commandLine("unzip", "-o", "/tmp/lspatch/lspatch.zip", "-d", "/tmp/lspatch")
-        }.result.get()
-
-        val jarPath = File("/tmp/lspatch").listFiles()?.find { it.name.contains("jar-") }?.absolutePath
-
-        providers.exec {
-            commandLine("unzip", "-o", jarPath, "assets/lspatch/so*", "-d", "${project.projectDir}/src/main/")
-        }.result.get()
-
-        providers.exec {
-            commandLine("mv", jarPath, "${project.projectDir}/libs/lspatch.jar")
-        }.result.get()
-
-        providers.exec {
-            commandLine("zip", "-d", "${project.projectDir}/libs/lspatch.jar", "com/google/common/util/concurrent/ListenableFuture.class")
-        }.result.get()
-
-        providers.exec {
-            commandLine("zip", "-d", "${project.projectDir}/libs/lspatch.jar", "com/google/errorprone/annotations/*")
-        }.result.get()
     }
 }
+    tasks.register("setupLSPatch") {
+        doLast {
+            val jarUrl =
+                Regex("https:\\/\\/nightly\\.link\\/JingMatrix\\/LSPatch\\/workflows\\/main\\/master\\/lspatch-debug-[^.]+\\.zip").find(
+                    URI("https://nightly.link/JingMatrix/LSPatch/workflows/main/master?preview").toURL()
+                        .readText()
+                )!!.value
 
-fun getGitCommitHash(): String? {
-    return try {
-        val isGitRepo = providers.exec {
-            commandLine("git", "rev-parse", "--is-inside-work-tree")
-            isIgnoreExitValue = true
-        }.result.get().exitValue == 0
-
-        if (isGitRepo) {
             providers.exec {
-                commandLine("git", "rev-parse", "--short", "HEAD")
-            }.standardOutput.asText.get().trim()
-        } else {
+                commandLine("mkdir", "-p", "/tmp/lspatch")
+            }.result.get()
+
+            providers.exec {
+                commandLine("wget", jarUrl, "-O", "/tmp/lspatch/lspatch.zip")
+            }.result.get()
+
+            providers.exec {
+                commandLine("unzip", "-o", "/tmp/lspatch/lspatch.zip", "-d", "/tmp/lspatch")
+            }.result.get()
+
+            val jarPath =
+                File("/tmp/lspatch").listFiles()?.find { it.name.contains("jar-") }?.absolutePath
+
+            providers.exec {
+                commandLine(
+                    "unzip",
+                    "-o",
+                    jarPath,
+                    "assets/lspatch/so*",
+                    "-d",
+                    "${project.projectDir}/src/main/"
+                )
+            }.result.get()
+
+            providers.exec {
+                commandLine("mv", jarPath, "${project.projectDir}/libs/lspatch.jar")
+            }.result.get()
+
+            providers.exec {
+                commandLine(
+                    "zip",
+                    "-d",
+                    "${project.projectDir}/libs/lspatch.jar",
+                    "com/google/common/util/concurrent/ListenableFuture.class"
+                )
+            }.result.get()
+
+            providers.exec {
+                commandLine(
+                    "zip",
+                    "-d",
+                    "${project.projectDir}/libs/lspatch.jar",
+                    "com/google/errorprone/annotations/*"
+                )
+            }.result.get()
+        }
+    }
+
+    fun getGitCommitHash(): String? {
+        return try {
+            val isGitRepo = providers.exec {
+                commandLine("git", "rev-parse", "--is-inside-work-tree")
+                isIgnoreExitValue = true
+            }.result.get().exitValue == 0
+
+            if (isGitRepo) {
+                providers.exec {
+                    commandLine("git", "rev-parse", "--short", "HEAD")
+                }.standardOutput.asText.get().trim()
+            } else {
+                null
+            }
+        } catch (e: Exception) {
             null
         }
-    } catch (e: Exception) {
-        null
     }
-}
 
-tasks.register("printVersionInfo") {
-    doLast {
-        val versionName = android.defaultConfig.versionName
-        println("VERSION_INFO: GrindrPlus v$versionName")
+    tasks.register("printVersionInfo") {
+        doLast {
+            val versionName = android.defaultConfig.versionName
+            println("VERSION_INFO: GrindrPlus v$versionName")
+        }
     }
-}

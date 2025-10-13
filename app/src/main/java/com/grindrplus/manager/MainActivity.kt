@@ -185,6 +185,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkStoragePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { // This permission is for Android 11+
+            if (!android.os.Environment.isExternalStorageManager()) {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = "package:$packageName".toUri()
+                }
+                Toast.makeText(
+                    this,
+                    "GrindrPlus needs access to manage files",
+                    Toast.LENGTH_LONG
+                ).show()
+                startActivity(intent)
+            }
+        }
+    }
+
     private fun registerNotificationReceiver() {
         try {
             receiver = NotificationActionReceiver()
@@ -240,46 +256,54 @@ class MainActivity : ComponentActivity() {
             var showUninstallDialogState by remember { showUninstallDialog }
             var calculatorScreen = remember { mutableStateOf(false) }
 
+// Inside the setContent block in onCreate
             LaunchedEffect(Unit) {
                 GrindrPlus.bridgeClient = BridgeClient(this@MainActivity)
                 GrindrPlus.bridgeClient.connectAsync { connected ->
                     Logger.initialize(this@MainActivity, GrindrPlus.bridgeClient, false)
-                    Config.initialize()
+                    Config.initialize() // [cite: 18]
                     HookManager().registerHooks(false)
                     TaskManager().registerTasks(false)
                     calculatorScreen.value = Config.get("discreet_icon", false) as Boolean
                     serviceBound = true
 
-                    if (!(Config.get("disable_permission_checks", false) as Boolean)) {
-                        checkNotificationPermission()
+                    if (!(Config.get("disable_permission_checks", false) as Boolean)) { // [cite: 19]
+                    // --- MODIFIED PERMISSION LOGIC ---
+                    // Check for unknown sources first.
+                    val hasUnknownSourcesPerm = packageManager.canRequestPackageInstalls()
+                    if (!hasUnknownSourcesPerm) {
                         checkUnknownSourcesPermission()
+                    } else {
+                        // If unknown sources is already granted, check for storage permission.
+                        checkStoragePermission()
+                    }
+                    // --- END OF MODIFICATION ---
+                }
+
+                    if (Config.get("analytics", true) as Boolean) { // [cite: 20]
+                    val config = AndroidResourcePlausibleConfig(this@MainActivity).also {
+                        it.domain = "grindrplus.lol"
+                        it.host = "https://plausible.gmmz.dev/api/"
+                        it.enable = true // [cite: 21]
                     }
 
-                    if (Config.get("analytics", true) as Boolean) {
-                        val config = AndroidResourcePlausibleConfig(this@MainActivity).also {
-                            it.domain = "grindrplus.lol"
-                            it.host = "https://plausible.gmmz.dev/api/"
-                            it.enable = true
-                        }
+                    plausible = Plausible(
+                        config = config, // [cite: 22]
+                        client = NetworkFirstPlausibleClient(config)
+                    )
 
-                        plausible = Plausible(
-                            config = config,
-                            client = NetworkFirstPlausibleClient(config)
-                        )
-
-                        plausible?.enable(true)
-                        plausible?.pageView(
+                    plausible?.enable(true)
+                    plausible?.pageView( // [cite: 23]
                             "app://grindrplus/home",
-                            props = mapOf("android_version" to Build.VERSION.SDK_INT)
-                        )
-                    }
+                    props = mapOf("android_version" to Build.VERSION.SDK_INT)
+                    )
+                }
 
                     if (Config.get("first_launch", true) as Boolean) {
                         firstLaunchDialog = true
                         patchInfoDialog = true
-                        plausible?.pageView("app://grindrplus/first_launch")
+                        plausible?.pageView("app://grindrplus/first_launch") // [cite: 25]
                         Config.put("first_launch", false)
-
                     }
                 }
             }

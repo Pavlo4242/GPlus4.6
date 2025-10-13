@@ -48,6 +48,7 @@ import java.io.IOException
 import java.lang.ref.WeakReference
 import kotlin.system.measureTimeMillis
 import androidx.core.net.toUri
+import com.grindrplus.core.HttpBodyLogger
 import timber.log.Timber
 
 
@@ -136,13 +137,19 @@ object GrindrPlus {
             Logger.d("GrindrPlus already initialized, skipping", LogSource.MODULE)
             return
         }
-
+        setupCrashLogging()
 
         this.context = application
         this.bridgeClient = BridgeClient(context)
 
         Logger.initialize(context, bridgeClient, true)
         Logger.i("Initializing GrindrPlus...", LogSource.MODULE)
+        try {
+        //    HttpBodyLogger.initialize()
+            Logger.i("HTTP Body Logger database initialized.", LogSource.MODULE)
+        } catch (e: Exception) {
+            Logger.e("Failed to initialize HttpBodyLogger database: ${e.message}", LogSource.MODULE)
+        }
 
         checkVersionCodes(versionCodes, versionNames)
         val connected = runBlocking {
