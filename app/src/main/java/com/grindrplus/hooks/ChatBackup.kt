@@ -1,65 +1,54 @@
 package com.grindrplus.hooks
 
 import com.grindrplus.GrindrPlus
-import com.grindrplus.core.DatabaseHelper
-import com.grindrplus.core.loge
-import com.grindrplus.core.logi
-import com.grindrplus.persistence.model.ArchivedChatMessageEntity
-import com.grindrplus.persistence.model.ArchivedConversationEntity
+import com.grindrplus.core.LogSource
+import com.grindrplus.core.Logger
 import com.grindrplus.utils.Hook
-import kotlin.collections.mapNotNull
+import com.grindrplus.utils.HookStage
+import com.grindrplus.persistence.model.ChatBackup
+import com.grindrplus.utils.hook
+import de.robv.android.xposed.XposedHelpers.getObjectField
 
-class ChatBackup : Hook(
-    "Enable Chat Backup",
-    "Automatically backs up Grindr chats to the GrindrPlus database."
+class ChatBackupHook : Hook(
+    "Chat Backup",
+    "Backs up chat messages to the GrindrPlus database."
 ) {
+    private val chatMessagesDao = "com.grindrapp.android.persistence.dao.ChatMessagesDao"
+
     override fun init() {
-        if (!isHookEnabled()) return
+        findClass(chatMessagesDao).hook("insertMessage", HookStage.AFTER) { param ->
+            if (!isHookEnabled()) return@hook
 
-        GrindrPlus.executeAsync {
+            val message = param.arg<Any>(0)
+            if (message == null) {
+                Logger.w("ChatMessage object was null, cannot backup.", LogSource.HOOK)
+                return@hook
+            }
+
             try {
-                logi("Starting chat backup process...")
-                val dao = GrindrPlus.database.chatBackupDao()
+                // Extract only the essential fields we need
+                val message_id = getObjectField(message, "messageId") as String
+                val conversation_id = getObjectField(message, "conversationId") as String
+                val sender = getObjectField(message, "senderId").toString()
+                val body = getObjectField(message, "body") as? String ?: ""
+                val timestamp = getObjectField(message, "timestamp") as Long
+                val type = getObjectField(message, "type") as String
 
-                // Backup conversations
-                val conversations = DatabaseHelper.query("SELECT * FROM chat_conversations")
-                val conversationEntities = conversations.mapNotNull {
-                    try {
-                        ArchivedConversationEntity(
-                            conversationId = it["conversation_id"] as String,
-                            name = it["name"] as? String,
-                            lastMessageTimestamp = (it["last_message_timestamp"] as? Long)
-                        )
-                    } catch (e: Exception) {
-                        loge("Failed to map conversation row: $it. Error: ${e.message}")
-                        null
-                    }
+                val chatBackup = ChatBackup(
+                    message_id = message_id,
+                    conversation_id = conversation_id,
+                    sender = sender,
+                    body = body,
+                    timestamp = timestamp,
+                    type = type
+                )
+
+                GrindrPlus.executeAsync {
+                    GrindrPlus.database.chatBackupDao().insertMessage(chatBackup)
+                    Logger.d("Successfully backed up message $message_id", LogSource.HOOK)
                 }
-                dao.upsertConversations(conversationEntities)
-                logi("Backed up ${conversationEntities.size} conversations.")
-
-                // Backup messages
-                val messages = DatabaseHelper.query("SELECT * FROM chat_messages")
-                val messageEntities = messages.mapNotNull {
-                    try {
-                        ArchivedChatMessageEntity(
-                            messageId = it["message_id"] as String,
-                            conversationId = it["conversation_id"] as String,
-                            senderId = it["sender_id"] as? String,
-                            timestamp = (it["timestamp"] as? Long),
-                            body = it["body"] as? String
-                        )
-                    } catch (e: Exception) {
-                        loge("Failed to map message row: $it. Error: ${e.message}")
-                        null
-                    }
-                }
-                dao.upsertMessages(messageEntities)
-                logi("Backed up ${messageEntities.size} messages.")
-
-                logi("Chat backup process completed successfully.")
             } catch (e: Exception) {
-                loge("Chat backup process failed: ${e.message}")
+                Logger.e("Failed to backup chat message: ${e.message}", LogSource.HOOK)
             }
         }
     }

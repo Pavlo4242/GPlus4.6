@@ -3,6 +3,7 @@ package com.grindrplus.persistence.model
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.util.Date
 
 @Entity(tableName = "archived_conversations", indices = [Index("conversationId")])
 data class ArchivedConversationEntity(
@@ -19,3 +20,15 @@ data class ArchivedChatMessageEntity(
     val timestamp: Long?,
     val body: String? // Storing the raw JSON body
 )
+
+@Entity(tableName = "chat_backup")
+data class ChatBackup(
+    @PrimaryKey
+    val message_id: String,
+    val conversation_id: String,
+    val sender: String,
+    val body: String,
+    val timestamp: Long,
+    val type: String
+)
+

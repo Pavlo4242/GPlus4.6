@@ -25,6 +25,7 @@ import com.grindrplus.persistence.model.ViewedSummary
 import com.grindrplus.persistence.dao.ChatBackupDao
 import com.grindrplus.persistence.model.ArchivedChatMessageEntity
 import com.grindrplus.persistence.model.ArchivedConversationEntity
+import com.grindrplus.persistence.model.ChatBackup
 
 @Database(
     entities = [
@@ -35,10 +36,11 @@ import com.grindrplus.persistence.model.ArchivedConversationEntity
         ViewedSummary::class,
         ViewedProfile::class,
         MediaItem::class,
-        ArchivedConversationEntity::class, // Add this
-        ArchivedChatMessageEntity::class   // Add this
+        ArchivedConversationEntity::class,
+        ArchivedChatMessageEntity::class,
+        ChatBackup::class  // Add this line
     ],
-    version = 7, // IMPORTANT: Increment the version number
+    version = 8, // Increment version since we're adding a new table
     exportSchema = false
 )
 @TypeConverters(DateConverter::class, ListConverter::class)
@@ -46,6 +48,7 @@ abstract class GPDatabase : RoomDatabase() {
     abstract fun albumDao(): AlbumDao
     abstract fun teleportLocationDao(): TeleportLocationDao
     abstract fun savedPhraseDao(): SavedPhraseDao
+    abstract fun chatBackupDao(): ChatBackupDao  // Add this method
 
     companion object {
         private const val DATABASE_NAME = "grindrplus.db"
@@ -60,7 +63,7 @@ abstract class GPDatabase : RoomDatabase() {
                     GPDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7) // Add the new migration
+                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8) // Add new migration
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .build()
                 INSTANCE = instance
@@ -68,67 +71,49 @@ abstract class GPDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `viewed_summary` (
-                        `id` INTEGER NOT NULL PRIMARY KEY,
-                        `viewedCount` INTEGER NOT NULL,
-                        `mostRecentProfileId` TEXT
-                    )
-                """
-                )
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `viewed_profiles` (
-                        `profileId` TEXT NOT NULL PRIMARY KEY,
-                        `viewCount` INTEGER NOT NULL,
-                        `lastTimestamp` INTEGER NOT NULL,
-                        `photoHashes` TEXT NOT NULL
-                    )
-                """
-                )
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `media_items` (
-                        `imageHash` TEXT NOT NULL PRIMARY KEY,
-                        `mediaId` INTEGER,
-                        `url` TEXT NOT NULL,
-                        `width` INTEGER NOT NULL,
-                        `height` INTEGER NOT NULL,
-                        `takenOnGrindr` INTEGER NOT NULL,
-                        `createdAt` INTEGER NOT NULL,
-                        `imageType` INTEGER NOT NULL,
-                        `tapType` INTEGER NOT NULL,
-                        `localPath` TEXT
-                    )
-                """
-                )
-            }
-        }
-
-        private val MIGRATION_6_7 = object : Migration(6, 7) {
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `archived_conversations` (
-                        `conversationId` TEXT NOT NULL PRIMARY KEY,
-                        `name` TEXT,
-                        `lastMessageTimestamp` INTEGER
-                    )
-                """)
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_archived_conversations_conversationId` ON `archived_conversations` (`conversationId`)")
+                // Create minimal chat backup table
+                db.execSQL(
+                    """
+            CREATE TABLE IF NOT EXISTS `chat_backup` (
+                `message_id` TEXT NOT NULL PRIMARY KEY,
+                `conversation_id` TEXT NOT NULL,
+                `sender` TEXT NOT NULL,
+                `body` TEXT NOT NULL,
+                `timestamp` INTEGER NOT NULL,
+                `type` TEXT NOT NULL
+            )
+        """
+                )
 
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `archived_chat_messages` (
-                        `messageId` TEXT NOT NULL PRIMARY KEY,
-                        `conversationId` TEXT NOT NULL,
-                        `senderId` TEXT,
-                        `timestamp` INTEGER,
-                        `body` TEXT
-                    )
-                """)
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_archived_chat_messages_conversationId` ON `archived_chat_messages` (`conversationId`)")
+                // Create conversation backup table
+                db.execSQL(
+                    """
+            CREATE TABLE IF NOT EXISTS `conversation_backup` (
+                `conversation_id` TEXT NOT NULL PRIMARY KEY,
+                `name` TEXT NOT NULL,
+                `last_message_timestamp` INTEGER NOT NULL,
+                `unread` INTEGER NOT NULL
+            )
+        """
+                )
+
+                // Create participant backup table
+                db.execSQL(
+                    """
+            CREATE TABLE IF NOT EXISTS `participant_backup` (
+                `id` INTEGER PRIMARY KEY AUTOINCREMENT,
+                `conversation_id` TEXT NOT NULL,
+                `profile_id` TEXT NOT NULL,
+                `last_online` INTEGER NOT NULL
+            )
+        """
+                )
+
+                // Create indices for better performance
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_backup_conversation_id` ON `chat_backup` (`conversation_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_participant_backup_conversation_id` ON `participant_backup` (`conversation_id`)")
             }
         }
     }

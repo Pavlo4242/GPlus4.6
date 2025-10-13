@@ -20,6 +20,14 @@ class PreventChatDeletion : Hook(
         "chat_conversation_previews"
     )
 
+    // This is the network service class responsible for making the API call to delete messages.
+    // We intercept the call here to prevent it from ever reaching Grindr's servers.
+    private val chatRestService = "com.grindrapp.android.chat.data.datasource.api.service.ChatRestService"
+
+    // This is the specific method that sends the deletion request.
+    private val deleteMessagesMethod = "deleteMessages"
+
+
     override fun init() {
         // We hook the main delete method of SQLiteDatabase.
         SQLiteDatabase::class.java.hook(
