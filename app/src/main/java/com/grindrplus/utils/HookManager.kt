@@ -67,9 +67,9 @@ class HookManager {
                 ProfileViews(),
                 QuickBlock(),
                 EmptyCalls(),
-                UnlimitedAlbums()
-                        //PreventChatDeletion(),
-                //ChatBackupHook()
+                UnlimitedAlbums(),
+                PreventChatDeletion(),
+                ChatBackupHook()
             )
 
             hookList.forEach { hook ->

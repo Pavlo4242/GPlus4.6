@@ -17,12 +17,18 @@ import de.robv.android.xposed.XposedHelpers.getObjectField
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class AntiBlock : Hook(
     "Anti Block",
-    "Notifies you when someone blocks or unblocks you"
+    "Notifies you when someone blocks or unblocks you and backs up deleted conversations"
 ) {
+    private val deletedConversationsBackup = mutableListOf<DeletedConversation>()
+    private val backupFile by lazy {
+        File(GrindrPlus.context.filesDir, "deleted_conversations_backup.json")
+    }
     private val scope = CoroutineScope(Dispatchers.IO)
     private var myProfileId: Long = 0
     private val chatDeleteConversationPlugin = "F6.c" // search for 'com.grindrapp.android.chat.ChatDeleteConversationPlugin'
@@ -151,72 +157,131 @@ class AntiBlock : Hook(
         }
     }
 
-    private fun handleProfileResponse(profileId: Long, conversationIds: String, response: String): Boolean {
+    private fun backupConversationBeforeDelete(conversationId: String) {
         try {
-            val jsonResponse = JSONObject(response)
-            val profilesArray = jsonResponse.optJSONArray("profiles")
+            val conversations = DatabaseHelper.query(
+                "SELECT * FROM chat_conversations WHERE conversation_id = ?",
+                arrayOf(conversationId)
+            )
 
-            if (profilesArray == null || profilesArray.length() == 0) {
-                var displayName = ""
-                try {
-                    displayName = (DatabaseHelper.query(
-                        "SELECT name FROM chat_conversations WHERE conversation_id = ?",
-                        arrayOf(conversationIds)
-                    ).firstOrNull()?.get("name") as? String)?.takeIf {
-                            name -> name.isNotEmpty() } ?: profileId.toString()
-                } catch (e: Exception) {
-                    loge("Error fetching display name: ${e.message}")
-                    Logger.writeRaw(e.stackTraceToString())
-                    displayName = profileId.toString()
-                }
-                displayName = if (displayName == profileId.toString() || displayName == "null")
-                { profileId.toString() } else { "$displayName ($profileId)" }
-                GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, true,
-                    GrindrPlus.packageName)
-                if (Config.get("anti_block_use_toasts", false) as Boolean) {
-                    GrindrPlus.showToast(Toast.LENGTH_LONG, "Blocked by $displayName")
-                } else {
-                    GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
-                        "Blocked by User",
-                        "You have been blocked by user $displayName",
-                        10000000 + (profileId % 10000000).toInt(),
-                        listOf("Copy ID"),
-                        listOf("COPY"),
-                        listOf(profileId.toString(), profileId.toString()),
-                        BridgeService.CHANNEL_BLOCKS,
-                        "Block Notifications",
-                        "Notifications when users block you"
-                    )
-                }
-                return true
-            } else {
-                val profile = profilesArray.getJSONObject(0)
-                var displayName = profile.optString("displayName", profileId.toString())
-                    .takeIf { it.isNotEmpty() && it != "null" } ?: profileId.toString()
-                displayName = if (displayName != profileId.toString()) "$displayName ($profileId)" else displayName
-                GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, false,
-                    GrindrPlus.packageName)
-                if (Config.get("anti_block_use_toasts", false) as Boolean) {
-                    GrindrPlus.showToast(Toast.LENGTH_LONG, "Unblocked by $displayName")
-                } else {
-                    GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
-                        "Unblocked by $displayName",
-                        "$displayName has unblocked you.",
-                        20000000 + (profileId % 10000000).toInt(),
-                        listOf("Copy ID"),
-                        listOf("COPY"),
-                        listOf(profileId.toString()),
-                        BridgeService.CHANNEL_UNBLOCKS,
-                        "Unblock Notifications",
-                        "Notifications when users unblock you"
-                    )
-                }
-                return false
-            }
+            val messages = DatabaseHelper.query(
+                "SELECT * FROM chat_messages WHERE conversation_id = ?",
+                arrayOf(conversationId)
+            )
+
+            val deletedConv = DeletedConversation(
+                conversationId = conversationId,
+                conversationData = conversations.firstOrNull() ?: emptyMap(),
+                messages = messages,
+                deletedAt = System.currentTimeMillis()
+            )
+
+            deletedConversationsBackup.add(deletedConv)
+            saveConversationBackup()
+
+            logd("Backed up conversation $conversationId with ${messages.size} messages")
+
         } catch (e: Exception) {
-            loge("Error handling profile response: ${e.message ?: "Unknown error"}")
-            Logger.writeRaw(e.stackTraceToString())
+            loge("Error backing up conversation: ${e.message}")
+        }
+    }
+
+    private fun saveConversationBackup() {
+        try {
+            val jsonArray = deletedConversationsBackup.map { it.toJson() }
+            backupFile.writeText(JSONArray(jsonArray).toString())
+        } catch (e: Exception) {
+            loge("Error saving conversation backup: ${e.message}")
+        }
+    }
+}
+
+data class DeletedConversation(
+    val conversationId: String,
+    val conversationData: Map<String, Any?>,
+    val messages: List<Map<String, Any?>>,
+    val deletedAt: Long
+) {
+    fun toJson(): JSONObject {
+        return JSONObject().apply {
+            put("conversationId", conversationId)
+            put("conversationData", JSONObject(conversationData))
+            put("messages", JSONArray(messages.map { JSONObject(it) }))
+            put("deletedAt", deletedAt)
+        }
+    }
+}
+private fun handleProfileResponse(profileId: Long, conversationIds: String, response: String): Boolean {
+    try {
+        val jsonResponse = JSONObject(response)
+        val profilesArray = jsonResponse.optJSONArray("profiles")
+
+        if (profilesArray == null || profilesArray.length() == 0) {
+            var displayName = ""
+            try {
+                displayName = (DatabaseHelper.query(
+                    "SELECT name FROM chat_conversations WHERE conversation_id = ?",
+                    arrayOf(conversationIds)
+                ).firstOrNull()?.get("name") as? String)?.takeIf {
+                        name -> name.isNotEmpty()
+                } ?: profileId.toString()
+            } catch (e: Exception) {
+                // Use Logger class directly instead of loge
+                Logger.e("Error fetching display name: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+                displayName = profileId.toString()
+            }
+            displayName = if (displayName == profileId.toString() || displayName == "null")
+                profileId.toString()
+            else
+                "$displayName ($profileId)"
+
+            GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, true,
+                GrindrPlus.packageName)
+            if (Config.get("anti_block_use_toasts", false) as Boolean) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Blocked by $displayName")
+            } else {
+                GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
+                    "Blocked by User",
+                    "You have been blocked by user $displayName",
+                    10000000 + (profileId % 10000000).toInt(),
+                    listOf("Copy ID"),
+                    listOf("COPY"),
+                    listOf(profileId.toString(), profileId.toString()),
+                    BridgeService.CHANNEL_BLOCKS,
+                    "Block Notifications",
+                    "Notifications when users block you"
+                )
+            }
+            return true
+        } else {
+            val profile = profilesArray.getJSONObject(0)
+            var displayName = profile.optString("displayName", profileId.toString())
+                .takeIf { it.isNotEmpty() && it != "null" } ?: profileId.toString()
+            displayName = if (displayName != profileId.toString()) "$displayName ($profileId)" else displayName
+            GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, false,
+                GrindrPlus.packageName)
+            if (Config.get("anti_block_use_toasts", false) as Boolean) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Unblocked by $displayName")
+            } else {
+                GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
+                    "Unblocked by $displayName",
+                    "$displayName has unblocked you.",
+                    20000000 + (profileId % 10000000).toInt(),
+                    listOf("Copy ID"),
+                    listOf("COPY"),
+                    listOf(profileId.toString()),
+                    BridgeService.CHANNEL_UNBLOCKS,
+                    "Unblock Notifications",
+                    "Notifications when users unblock you"
+                )
+            }
             return false
         }
+    } catch (e: Exception) {
+        // Use Logger class directly
+        Logger.e("Error handling profile response: ${e.message ?: "Unknown error"}")
+        Logger.writeRaw(e.stackTraceToString())
+        return false
     }
 }

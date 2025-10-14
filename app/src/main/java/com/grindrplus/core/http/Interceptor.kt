@@ -32,7 +32,7 @@ class Interceptor(
         if (!isLoggedIn) {
             PermissionManager.requestExternalStoragePermission(GrindrPlus.context, delayMs = 3000)
             Logger.i("Triggered external storage permission request from Interceptor (user not logged in)", LogSource.HTTP)
-           HttpBodyLogger.initialize(delayMs = 5000)
+           HttpBodyLogger.initialize(delayMs = 5000, context = GrindrPlus.context)
 
         }
 

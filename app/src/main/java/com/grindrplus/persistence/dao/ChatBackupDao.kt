@@ -16,7 +16,8 @@ import com.grindrplus.persistence.model.ParticipantBackup
 interface ChatBackupDao {
     // Chat messages
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMessage(chatBackup: ChatBackup)
+    suspend fun insert(chatBackup: ChatBackup)
+
 
     @Query("SELECT * FROM chat_backup WHERE conversation_id = :conversationId ORDER BY timestamp ASC")
     suspend fun getMessagesByConversation(conversationId: String): List<ChatBackup>

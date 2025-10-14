@@ -7,6 +7,8 @@ import android.widget.Toast
 import androidx.appcompat.widget.AppCompatTextView
 import com.grindrplus.GrindrPlus
 import com.grindrplus.core.Config
+import com.grindrplus.core.HttpBodyLogger
+import com.grindrplus.core.Utils.openProfile
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -78,6 +80,18 @@ class Utils(
                 }
                 .create()
                 .show()
+        }
+    }
+
+    @Command("initlog", help = "initialize Http Log DB")
+    fun initialize(args: List<String>) {
+        if (args.isNotEmpty()) {
+            return HttpBodyLogger.initialize(delayMs = 0, context = GrindrPlus.context)
+        } else {
+            GrindrPlus.showToast(
+                Toast.LENGTH_LONG,
+                "Please fuck Goats"
+            )
         }
     }
 

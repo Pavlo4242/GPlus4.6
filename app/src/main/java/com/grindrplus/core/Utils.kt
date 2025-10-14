@@ -21,8 +21,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import java.io.File
 import kotlin.math.pow
+import android.content.ContentValues
+
+import org.json.JSONObject
 
 object Utils {
     fun openChat(id: String) {
@@ -117,6 +121,68 @@ object Utils {
         )
 
         startActivityMethod.invoke(null, context, intent)
+    }
+    fun restoreDeletedMessages(activity: Activity) {
+        val backupFile = File(context.filesDir, "deleted_messages_backup.json")
+        if (!backupFile.exists()) {
+            GrindrPlus.showToast(Toast.LENGTH_SHORT, "No deleted messages to restore")
+            return
+        }
+
+        showProgressDialog(
+            context = activity,
+            message = "Restoring deleted messages...",
+            onCancel = { /* ... */ },
+            onRunInBackground = { updateProgress, onComplete ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val json = backupFile.readText()
+                        val jsonArray = JSONArray(json)
+                        val messages = (0 until jsonArray.length()).map { i ->
+                            DeletedMessage.fromJson(jsonArray.getJSONObject(i))
+                        }
+
+                        messages.forEachIndexed { index, message ->
+                            // Insert the message back into the database
+                            restoreMessageToDatabase(message)
+                            val progress = ((index + 1) * 100) / messages.size
+                            updateProgress(progress)
+                            Thread.sleep(100) // Small delay to avoid overwhelming
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            backupFile.delete()
+                            onComplete(true)
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            onComplete(false)
+                        }
+                    }
+                }
+            },
+            successMessage = "Deleted messages restored successfully!",
+            failureMessage = "Failed to restore deleted messages."
+        )
+    }
+
+    private fun restoreMessageToDatabase(message: DeletedMessage) {
+        // Use your existing DatabaseHelper to re-insert the message
+        val values = ContentValues().apply {
+            put("message_id", message.messageId)
+            put("conversation_id", message.conversationId)
+            put("sender_id", message.senderId)
+            put("recipient_id", message.recipientId)
+            put("message_text", message.messageText)
+            put("timestamp", message.timestamp)
+            put("message_type", message.messageType)
+            put("is_unsent", if (message.isUnsent) 1 else 0)
+        }
+
+        DatabaseHelper.insert("chat_messages", values)
+
+        // The FTS entry will be automatically recreated by Grindr's triggers
+        // or you might need to manually insert into chat_message_fts
     }
 
     fun calculateBMI(isMetric: Boolean, weight: Double, height: Double): Double {
@@ -416,6 +482,45 @@ object Utils {
             Logger.apply {
                 e(message)
                 writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+
+    data class DeletedMessage(
+        val messageId: String,
+        val conversationId: String,
+        val senderId: String,
+        val recipientId: String,
+        val messageText: String,
+        val timestamp: Long,
+        val messageType: String,
+        val isUnsent: Boolean
+    ) {
+        fun toJson(): JSONObject {
+            return JSONObject().apply {
+                put("message_id", messageId)
+                put("conversation_id", conversationId)
+                put("sender_id", senderId)
+                put("recipient_id", recipientId)
+                put("message_text", messageText)
+                put("timestamp", timestamp)
+                put("message_type", messageType)
+                put("is_unsent", isUnsent)
+            }
+        }
+
+        companion object {
+            fun fromJson(json: JSONObject): DeletedMessage {
+                return DeletedMessage(
+                    messageId = json.getString("message_id"),
+                    conversationId = json.getString("conversation_id"),
+                    senderId = json.getString("sender_id"),
+                    recipientId = json.getString("recipient_id"),
+                    messageText = json.getString("message_text"),
+                    timestamp = json.getLong("timestamp"),
+                    messageType = json.getString("message_type"),
+                    isUnsent = json.getBoolean("is_unsent")
+                )
             }
         }
     }
