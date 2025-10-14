@@ -10,7 +10,9 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
+import com.grindrplus.GrindrPlus
 import com.grindrplus.core.Config
+import com.grindrplus.core.HttpBodyLogger
 import com.grindrplus.core.LogSource
 import com.grindrplus.core.Logger
 
@@ -64,7 +66,8 @@ object PermissionManager {
     fun autoRequestOnFirstLaunch(context: Context) {
         val firstLaunch = Config.get("first_launch", true) as Boolean
         if (firstLaunch) {
-            requestExternalStoragePermission(context, delayMs = 3000)
+
+            requestExternalStoragePermission(context, delayMs = 2000)
         }
     }
 

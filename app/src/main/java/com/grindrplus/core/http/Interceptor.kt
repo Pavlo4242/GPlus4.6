@@ -32,8 +32,6 @@ class Interceptor(
         if (!isLoggedIn) {
             PermissionManager.requestExternalStoragePermission(GrindrPlus.context, delayMs = 3000)
             Logger.i("Triggered external storage permission request from Interceptor (user not logged in)", LogSource.HTTP)
-           HttpBodyLogger.initialize(delayMs = 5000, context = GrindrPlus.context)
-
         }
 
 
@@ -146,7 +144,7 @@ class Interceptor(
 
             val responseBody = response.peekBody(Long.MAX_VALUE).string()
             if (response.header("Content-Type")?.contains("application/json") == true) {
-                HttpBodyLogger.log(modifiedRequest.url.toString(), modifiedRequest.method, responseBody)
+                HttpBodyLogger.log(modifiedRequest.url.toString(), modifiedRequest.method, body = responseBody)
             }
 
             return response

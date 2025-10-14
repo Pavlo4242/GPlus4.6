@@ -83,17 +83,7 @@ class Utils(
         }
     }
 
-    @Command("initlog", help = "initialize Http Log DB")
-    fun initialize(args: List<String>) {
-        if (args.isNotEmpty()) {
-            return HttpBodyLogger.initialize(delayMs = 0, context = GrindrPlus.context)
-        } else {
-            GrindrPlus.showToast(
-                Toast.LENGTH_LONG,
-                "Please fuck Goats"
-            )
-        }
-    }
+
 
     @Command("prefix", help = "Change the command prefix (default: /)")
     fun prefix(args: List<String>) {
