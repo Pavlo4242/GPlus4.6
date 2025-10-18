@@ -67,7 +67,7 @@ object PermissionManager {
         val firstLaunch = Config.get("first_launch", true) as Boolean
         if (firstLaunch) {
 
-            requestExternalStoragePermission(context, delayMs = 2000)
+            requestExternalStoragePermission(context, delayMs = 7000)
         }
     }
 

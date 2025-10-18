@@ -42,9 +42,9 @@ import com.grindrplus.persistence.model.ViewedSummary
         ChatBackup::class,
         ConversationBackup::class,
         ParticipantBackup::class,
-        HttpBodyLogEntity::class // Add this
+        HttpBodyLogEntity::class
     ],
-    version = 9, // Incremented version
+    version = 2, // Increment to version 10
     exportSchema = false
 )
 @TypeConverters(DateConverter::class, ListConverter::class)
@@ -53,7 +53,7 @@ abstract class GPDatabase : RoomDatabase() {
     abstract fun teleportLocationDao(): TeleportLocationDao
     abstract fun savedPhraseDao(): SavedPhraseDao
     abstract fun chatBackupDao(): ChatBackupDao
-    abstract fun httpBodyLogDao(): HttpBodyLogDao // Add this
+    abstract fun httpBodyLogDao(): HttpBodyLogDao
 
     companion object {
         private const val DATABASE_NAME = "grindrplus.db"
@@ -68,12 +68,7 @@ abstract class GPDatabase : RoomDatabase() {
                     GPDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(
-                        MIGRATION_5_6,
-                        MIGRATION_6_7,
-                        MIGRATION_7_8,
-                        MIGRATION_8_9 // Add this
-                    )
+                    .addMigrations(MIGRATION_1_2) // Only include the latest migration
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .build()
                 INSTANCE = instance
@@ -81,57 +76,8 @@ abstract class GPDatabase : RoomDatabase() {
             }
         }
 
-        private val MIGRATION_8_9 = object : Migration(8, 9) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `http_body_logs` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        `timestamp` INTEGER NOT NULL,
-                        `url` TEXT NOT NULL,
-                        `method` TEXT NOT NULL,
-                        `response_body` TEXT
-                    )
-                """
-                )
-            }
-        }
 
-        private val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `http_body_logs` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        `timestamp` INTEGER NOT NULL,
-                        `url` TEXT NOT NULL,
-                        `method` TEXT NOT NULL,
-                        `response_body` TEXT
-                    )
-                """
-                )
-            }
-        }
-
-
-        private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `http_body_logs` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                        `timestamp` INTEGER NOT NULL,
-                        `url` TEXT NOT NULL,
-                        `method` TEXT NOT NULL,
-                        `response_body` TEXT
-                    )
-                """
-                )
-            }
-        }
-
-
-        private val MIGRATION_6_7 = object : Migration(6, 7) {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     """

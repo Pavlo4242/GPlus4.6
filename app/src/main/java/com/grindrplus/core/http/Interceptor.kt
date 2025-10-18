@@ -3,7 +3,7 @@ package com.grindrplus.core.http
 import com.grindrplus.GrindrPlus
 import com.grindrplus.core.CredentialsLogger
 import com.grindrplus.core.HttpBodyLogger
-import com.grindrplus.core.HttpLogger
+//import com.grindrplus.core.HttpLogger
 import com.grindrplus.core.Logger
 import com.grindrplus.core.LogSource
 import com.grindrplus.manager.utils.PermissionManager
@@ -133,7 +133,7 @@ class Interceptor(
             Logger.d("Intercepting request to: ${request.url}", LogSource.HTTP)
             val response= chain.proceed(modifiedRequest)
 
-            HttpLogger.log(modifiedRequest, response)
+          //  HttpLogger.log(modifiedRequest, response)
 
 
 
