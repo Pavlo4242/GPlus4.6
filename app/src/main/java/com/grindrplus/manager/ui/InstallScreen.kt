@@ -728,7 +728,7 @@ class PreviewInstallScreenViewModel : InstallScreenViewModel() {
             Data("v9.9.0", "https://example.com/grindr-old.apk", "https://example.com/mod-old.apk")
         )
     }
-    fun loadVersionData(manifestUrl: String) {
+    override fun loadVersionData(manifestUrl: String) {
         // No-op for preview
     }
 }
