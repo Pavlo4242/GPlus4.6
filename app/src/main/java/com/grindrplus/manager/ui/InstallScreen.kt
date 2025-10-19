@@ -35,7 +35,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grindrplus.core.Config
@@ -64,8 +66,33 @@ import com.grindrplus.manager.utils.isLSPosed
 
 private val logEntries = mutableStateListOf<LogEntry>()
 
+private enum class GrindrInstallationStatus {
+    CHECKING,
+    INSTALLED,
+    NOT_INSTALLED,
+    CHECK_FAILED
+}
+
 @Composable
-fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: InstallScreenViewModel = viewModel()) {
+fun InstallPage(
+    context: Activity,
+    innerPadding: PaddingValues = PaddingValues(0.dp),
+    viewModel: InstallScreenViewModel = viewModel()
+) {
+    InstallPageContent(
+        context = context,
+        innerPadding = innerPadding,
+        viewModel = viewModel
+    )
+}
+
+@Composable
+private fun InstallPageContent(
+    context: Activity,
+    innerPadding: PaddingValues,
+    viewModel: InstallScreenViewModel
+) {
+
     // 1. State from ViewModel
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -75,7 +102,6 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
     var selectedVersion by remember { mutableStateOf<Data?>(null) }
     var isInstalling by remember { mutableStateOf(false) }
     var isCloning by remember { mutableStateOf(false) }
-    var installationSuccessful by remember { mutableStateOf(false) }
     val isRooted = remember { RootBeer(context).isRooted }
     var showCloneDialog by remember { mutableStateOf(false) }
     var installation by remember { mutableStateOf<Installation?>(null) }
@@ -86,12 +112,17 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
     var customVersionName by remember { mutableStateOf("custom") }
     var customBundleUri by remember { mutableStateOf<Uri?>(null) }
     var customModUri by remember { mutableStateOf<Uri?>(null) }
+    var grindrStatus by remember { mutableStateOf(GrindrInstallationStatus.CHECKING) }
 
     // 3. Side Effects
     val manifestUrl = (Config.get("custom_manifest", DATA_URL) as String).ifBlank { null }
 
     LaunchedEffect(Unit) {
         viewModel.loadVersionData(manifestUrl.toString())
+    }
+
+    LaunchedEffect(Unit) {
+        grindrStatus = isGrindrInstalled(context)
     }
 
     // Creates a background task to auto-select the latest version
@@ -157,7 +188,7 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
 
                 addLog("Custom installation completed successfully!", LogType.SUCCESS)
                 showToast(context, "Installation complete!")
-                installationSuccessful = true
+                grindrStatus = GrindrInstallationStatus.INSTALLED
             } catch (e: Exception) {
                 handleInstallationError(e, context)
             } finally {
@@ -295,7 +326,8 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
                     onClick = {
@@ -319,12 +351,6 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
                         }
                     },
                     enabled = !isInstalling && !isCloning,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.38f
-                        )
-                    ),
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
@@ -335,60 +361,118 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                Button(
-                    onClick = {
-                        if (installationSuccessful) {
-                            launchGrindr(context)
-                        } else {
-                            if (useCustomFiles && customBundleUri != null && customModUri != null) {
-                                startCustomInstallation()
-                            } else {
-                                if (selectedVersion == null) {
-                                    showToast(context, "Please select a version first")
-                                    return@Button
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    when (grindrStatus) {
+                        GrindrInstallationStatus.CHECKING -> {
+                            CircularProgressIndicator(modifier = Modifier.height(48.dp)) // Match button height
+                        }
+                        GrindrInstallationStatus.INSTALLED -> {
+                            // New button layout for installed state
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                // Open Grindr button
+                                Button(
+                                    onClick = { launchGrindr(context) },
+                                    enabled = !isInstalling && !isCloning,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Open Grindr", modifier = Modifier.padding(vertical = 8.dp))
                                 }
 
-                                startInstallation(
-                                    selectedVersion!!,
-                                    onStarted = { isInstalling = true },
-                                    onCompleted = { success ->
-                                        isInstalling = false
-                                        installationSuccessful = success
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Force Install button
+                                OutlinedButton(
+                                    onClick = {
+                                        if (useCustomFiles && customBundleUri != null && customModUri != null) {
+                                            startCustomInstallation()
+                                        } else {
+                                            if (selectedVersion == null) {
+                                                showToast(context, "Please select a version first")
+                                                return@OutlinedButton
+                                            }
+                                            startInstallation(
+                                                selectedVersion!!,
+                                                onStarted = { isInstalling = true },
+                                                onCompleted = { success ->
+                                                    isInstalling = false
+                                                    if (success) {
+                                                        grindrStatus = GrindrInstallationStatus.INSTALLED
+                                                    }
+                                                },
+                                                context,
+                                                print
+                                            )
+                                        }
                                     },
-                                    context,
-                                    print
-                                )
+                                    enabled = (selectedVersion != null || (useCustomFiles && customBundleUri != null)) && !isInstalling && !isCloning,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (isInstalling) "Force Installing..." else "Force Install",
+                                        modifier = Modifier.padding(vertical = 8.dp))
+                                }
                             }
                         }
-                    },
-                    enabled = ((selectedVersion != null || (useCustomFiles && customBundleUri != null && customModUri != null)) ||
-                            installationSuccessful) && !isInstalling && !isCloning,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.12f
-                        ),
-                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.38f
-                        )
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = if (isInstalling) {
-                            "Installing..."
-                        } else if (installationSuccessful) {
-                            "Open Grindr"
-                        } else {
-                            "Install"
-                        },
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
+                        GrindrInstallationStatus.NOT_INSTALLED -> {
+                            Button(
+                                onClick = {
+                                    if (useCustomFiles && customBundleUri != null && customModUri != null) {
+                                        startCustomInstallation()
+                                    } else {
+                                        if (selectedVersion == null) {
+                                            showToast(context, "Please select a version first")
+                                            return@Button
+                                        }
+                                        startInstallation(
+                                            selectedVersion!!,
+                                            onStarted = { isInstalling = true },
+                                            onCompleted = { success ->
+                                                isInstalling = false
+                                                if (success) {
+                                                    grindrStatus = GrindrInstallationStatus.INSTALLED
+                                                }
+                                            },
+                                            context,
+                                            print
+                                        )
+                                    }
+                                },
+                                enabled = (selectedVersion != null || (useCustomFiles && customBundleUri != null)) && !isInstalling && !isCloning,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (isInstalling) "Installing..." else "Install", modifier = Modifier.padding(vertical = 8.dp))
+                            }
+                        }
+                        GrindrInstallationStatus.CHECK_FAILED -> {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Check failed", style = MaterialTheme.typography.bodySmall)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row {
+                                    Button(
+                                        onClick = { launchGrindr(context) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp)
+                                    ) {
+                                        Text("Relaunch", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = { grindrStatus = isGrindrInstalled(context) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp)
+                                    ) {
+                                        Text("Recheck", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            if (isGrindrInstalled(context)) {
+            if (grindrStatus == GrindrInstallationStatus.INSTALLED) {
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Button(
@@ -468,6 +552,184 @@ fun ErrorScreen(errorMessage: String, onRetry: () -> Unit) {
         ) {
             Text("Retry")
         }
+    }
+}
+
+@Preview(showBackground = true, name = "Button Layout - Installed")
+@Composable
+fun ButtonLayoutPreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Main action buttons
+            Button(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Open Grindr")
+            }
+
+            OutlinedButton(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Force Install")
+            }
+
+            // Clone button with icon
+            Button(
+                onClick = { },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Clone",
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text("Clone Grindr")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Clean up button
+            OutlinedButton(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Clean Up")
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Button Layout - Not Installed")
+@Composable
+fun ButtonLayoutNotInstalledPreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Single install button for not installed state
+            Button(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Install")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Clean Up")
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Main UI - Installed")
+@Composable
+fun InstallPageInstalledPreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxSize()
+        ) {
+            // Same banner and version selector as above
+            MessageBanner(
+                text = "• Don't close the app while installation is in progress\n• Grindr WILL crash on first launch after installation",
+                isVisible = true,
+                isPulsating = false,
+                modifier = Modifier.fillMaxWidth(),
+                type = BannerType.WARNING,
+                onDismiss = { }
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            VersionSelector(
+                versions = listOf(Data("v9.10.0", "", "")),
+                selectedVersion = Data("v9.10.0", "", ""),
+                onVersionSelected = { },
+                isEnabled = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Console output would appear here")
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Different button layout for installed state
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open Grindr")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = { },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Force Install")
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = { },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Clone Grindr")
+                }
+            }
+        }
+    }
+}
+
+// Preview ViewModel for testing
+class PreviewInstallScreenViewModel : InstallScreenViewModel() {
+    init {
+        val isLoading = mutableStateOf(false)
+        val errorMessage = mutableStateOf<String?>(null)
+        val versionData = listOf(
+            Data("v9.10.0", "https://example.com/grindr.apk", "https://example.com/mod.apk"),
+            Data("v9.9.0", "https://example.com/grindr-old.apk", "https://example.com/mod-old.apk")
+        )
+    }
+    fun loadVersionData(manifestUrl: String) {
+        // No-op for preview
     }
 }
 
@@ -574,12 +836,15 @@ private fun launchGrindr(context: Context) {
     }
 }
 
-private fun isGrindrInstalled(context: Context): Boolean {
+private fun isGrindrInstalled(context: Context): GrindrInstallationStatus {
     return try {
         context.packageManager.getPackageInfo(GRINDR_PACKAGE_NAME, 0)
-        true
+        GrindrInstallationStatus.INSTALLED
     } catch (_: PackageManager.NameNotFoundException) {
-        false
+        GrindrInstallationStatus.NOT_INSTALLED
+    } catch (e: Exception) {
+        // This should catch other exceptions e.g. app crash
+        GrindrInstallationStatus.CHECK_FAILED
     }
 }
 

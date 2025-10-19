@@ -1,6 +1,6 @@
 @echo off
 set "source_dir=D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus"  REM Replace with your directory path
-set "output_file=almostworking"  REM Replace with desired output name
+set "output_file=compelete"  REM Replace with desired output name
 
 if not exist "%source_dir%" (
     echo Source directory does not exist!
