@@ -1,4 +1,3 @@
-/*
 package com.grindrplus.core
 
 import android.os.Environment
@@ -43,4 +42,4 @@ object HttpLogger {
             Logger.e("Failed to write to HTTP log file: ${e.message}")
         }
     }
-}*/
+}

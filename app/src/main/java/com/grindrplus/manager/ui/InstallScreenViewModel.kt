@@ -16,7 +16,7 @@ import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 
-open class InstallScreenViewModel : ViewModel() {
+class InstallScreenViewModel : ViewModel() {
 
     private val _isLoading = MutableStateFlow(true)
     val isLoading = _isLoading.asStateFlow()
@@ -28,7 +28,7 @@ open class InstallScreenViewModel : ViewModel() {
 
     val versionData = mutableStateListOf<Data>()
 
-    open fun loadVersionData(manifestUrl: String) {
+    fun loadVersionData(manifestUrl: String) {
         _isLoading.value = true
         _errorMessage.value = null
         viewModelScope.launch {
