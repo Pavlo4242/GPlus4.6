@@ -9,24 +9,30 @@ import com.grindrplus.hooks.BanManagement
 import com.grindrplus.hooks.ChatBackupHook
 import com.grindrplus.hooks.ChatIndicators
 import com.grindrplus.hooks.ChatTerminal
+import com.grindrplus.hooks.ConversationTracker
+import com.grindrplus.hooks.DatabasePatternMasking
 import com.grindrplus.hooks.DisableAnalytics
 import com.grindrplus.hooks.DisableBoosting
 import com.grindrplus.hooks.DisableShuffle
 import com.grindrplus.hooks.DisableUpdates
 import com.grindrplus.hooks.EmptyCalls
 import com.grindrplus.hooks.EnableUnlimited
+import com.grindrplus.hooks.EnhancedAntiDetection
 import com.grindrplus.hooks.ExpiringMedia
 import com.grindrplus.hooks.Favorites
 import com.grindrplus.hooks.FeatureGranting
 import com.grindrplus.hooks.LocalSavedPhrases
 import com.grindrplus.hooks.LocationSpoofer
+import com.grindrplus.hooks.NetworkPatternNormalizer
 import com.grindrplus.hooks.NotificationAlerts
 import com.grindrplus.hooks.OnlineIndicator
 import com.grindrplus.hooks.PreventChatDeletion
+import com.grindrplus.hooks.ProfileChangeTracker
 import com.grindrplus.hooks.ProfileDetails
 import com.grindrplus.hooks.ProfileViews
 import com.grindrplus.hooks.QuickBlock
 import com.grindrplus.hooks.StatusDialog
+import com.grindrplus.hooks.StorageDetectionBypass
 import com.grindrplus.hooks.TimberLogging
 import com.grindrplus.hooks.UnlimitedAlbums
 import com.grindrplus.hooks.UnlimitedProfiles
@@ -41,12 +47,25 @@ class HookManager {
     fun registerHooks(init: Boolean = true) {
         runBlocking(Dispatchers.IO) {
             val hookList = listOf(
+                // Critical Anti-Detection (Register First)
+                EnhancedAntiDetection(),
+                StorageDetectionBypass(),
+                DatabasePatternMasking(),
+                NetworkPatternNormalizer(),
+
+                // Existing Anti-Detection
+                AntiDetection(),
+
+                // New Tracking Hooks
+                ProfileChangeTracker(),
+                ConversationTracker(),
+
+                // Existing Hooks (in original order)
                 WebSocketAlive(),
                 TimberLogging(),
                 BanManagement(),
                 FeatureGranting(),
                 EnableUnlimited(),
-                AntiDetection(),
                 StatusDialog(),
                 AntiBlock(),
                 NotificationAlerts(),
@@ -74,7 +93,9 @@ class HookManager {
 
             hookList.forEach { hook ->
                 Config.initHookSettings(
-                    hook.hookName, hook.hookDesc, true
+                    hook.hookName,
+                    hook.hookDesc,
+                    true  // All enabled by default
                 )
             }
 
@@ -89,6 +110,15 @@ class HookManager {
                 } else {
                     Logger.i("Hook ${hook.hookName} is disabled.")
                 }
+            }
+
+            // Initialize stealth mode on first run
+            val firstRun = Config.get("stealth_initialized", false) as Boolean
+            if (!firstRun) {
+                StealthConfig.initializeStealthMode()
+                StealthConfig.applySafetySettings()
+                Config.put("stealth_initialized", true)
+                Logger.s("Stealth mode initialized on first run")
             }
         }
     }

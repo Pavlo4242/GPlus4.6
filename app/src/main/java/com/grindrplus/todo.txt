@@ -1,3 +1,4 @@
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\GrindrPlus.kt --- 
 package com.grindrplus
 @SuppressLint("StaticFieldLeak")
@@ -74,17 +75,10 @@ object GrindrPlus {
             Logger.d("GrindrPlus already initialized, skipping", LogSource.MODULE)
             return
         }
-        setupCrashLogging()
         this.context = application
         this.bridgeClient = BridgeClient(context)
         Logger.initialize(context, bridgeClient, true)
         Logger.i("Initializing GrindrPlus...", LogSource.MODULE)
-        try {
-        //    HttpBodyLogger.initialize()
-            Logger.i("HTTP Body Logger database initialized.", LogSource.MODULE)
-        } catch (e: Exception) {
-            Logger.e("Failed to initialize HttpBodyLogger database: ${e.message}", LogSource.MODULE)
-        }
         checkVersionCodes(versionCodes, versionNames)
         val connected = runBlocking {
             try {
@@ -1449,12 +1443,12 @@ class BridgeService : Service() {
         val notificationManager: NotificationManager =
             applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (notificationManager.getNotificationChannel(channelId) == null) {
-            val importance = if (channelId == "bridge_service_channel") {
+            val 
                 NotificationManager.IMPORTANCE_MIN
             } else {
                 NotificationManager.IMPORTANCE_DEFAULT
             }
-            val channel = NotificationChannel(channelId, channelName, importance).apply {
+            val channel = NotificationChannel(channelId, channelName, 
                 description = channelDescription
                 if (channelId == "bridge_service_channel") {
                     setShowBadge(false)
@@ -1657,6 +1651,297 @@ class NotificationActionReceiver : BroadcastReceiver() {
         }
     }
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\commands\Archive.kt --- 
+package com.grindrplus.commands
+class Archive(
+    recipient: String,
+    sender: String
+) : CommandModule("Archive", recipient, sender) {
+    private val scope = CoroutineScope(Dispatchers.Main)
+    @Command("archive_profile", aliases = ["ap"], help = "Archive all photos from current or specified profile")
+    fun archiveProfile(args: List<String>) {
+        val profileId = if (args.isNotEmpty()) args[0] else sender
+        scope.launch {
+            try {
+                GrindrPlus.showToast(Toast.LENGTH_SHORT, "Archiving profile $profileId...")
+                val result = MediaDehasher.archiveProfilePhotos(profileId)
+                result.fold(
+                    onSuccess = { photos ->
+                        GrindrPlus.showToast(
+                            Toast.LENGTH_LONG,
+                            "Archived ${photos.size} photos for profile $profileId"
+                        )
+                    },
+                    onFailure = { error ->
+                        GrindrPlus.showToast(
+                            Toast.LENGTH_LONG,
+                            "Archive failed: ${error.message}"
+                        )
+                        Logger.e("Archive failed: ${error.message}")
+                        Logger.writeRaw(error.stackTraceToString())
+                    }
+                )
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+            }
+        }
+    }
+    @Command("archive_album", aliases = ["aa"], help = "Archive entire album by ID")
+    fun archiveAlbum(args: List<String>) {
+        if (args.isEmpty()) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "Usage: archive_album <album_id>")
+            return
+        }
+        val albumId = args[0].toLongOrNull()
+        if (albumId == null) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "Invalid album ID")
+            return
+        }
+        scope.launch {
+            try {
+                GrindrPlus.showToast(Toast.LENGTH_SHORT, "Archiving album $albumId...")
+                val result = MediaDehasher.archiveAlbum(albumId)
+                result.fold(
+                    onSuccess = { media ->
+                        GrindrPlus.showToast(
+                            Toast.LENGTH_LONG,
+                            "Archived ${media.size} items from album $albumId"
+                        )
+                    },
+                    onFailure = { error ->
+                        GrindrPlus.showToast(
+                            Toast.LENGTH_LONG,
+                            "Archive failed: ${error.message}"
+                        )
+                    }
+                )
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+            }
+        }
+    }
+    @Command("archive_stats", aliases = ["as"], help = "Show archive statistics")
+    fun archiveStats(args: List<String>) {
+        scope.launch {
+            try {
+                val stats = MediaDehasher.getArchiveStats()
+                val sizeInMB = stats.totalSize / (1024.0 * 1024.0)
+                val message = """
+                    Archive Statistics:
+                    • Total files: ${stats.totalFiles}
+                    • Total size: ${"%.2f".format(sizeInMB)} MB
+                    • Location: ${stats.storageLocation}
+                """.trimIndent()
+                GrindrPlus.showToast(Toast.LENGTH_LONG, message)
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+            }
+        }
+    }
+    @Command("profile_history", aliases = ["ph"], help = "View profile change history")
+    fun profileHistory(args: List<String>) {
+        val profileId = if (args.isNotEmpty()) args[0] else sender
+        scope.launch {
+            try {
+                val dao = GrindrPlus.database.profileTrackingDao()
+                val history = dao.getProfileHistory(profileId)
+                if (history.isEmpty()) {
+                    GrindrPlus.showToast(Toast.LENGTH_LONG, "No history found for profile $profileId")
+                    return@launch
+                }
+                val changes = StringBuilder()
+                changes.append("Profile History for $profileId:\n\n")
+                history.forEachIndexed { index, snapshot ->
+                    val date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                        .format(java.util.Date(snapshot.timestamp))
+                    changes.append("${index + 1}. $date\n")
+                    changes.append("   Name: ${snapshot.displayName ?: "N/A"}\n")
+                    changes.append("   Age: ${snapshot.age ?: "N/A"}\n")
+                    if (index < history.size - 1) {
+                        val prev = history[index + 1]
+                        if (snapshot.displayName != prev.displayName) {
+                            changes.append("   ⚠ Name changed from: ${prev.displayName}\n")
+                        }
+                        if (snapshot.age != prev.age) {
+                            changes.append("   ⚠ Age changed from: ${prev.age}\n")
+                        }
+                    }
+                    changes.append("\n")
+                }
+                GrindrPlus.showToast(Toast.LENGTH_LONG, changes.toString())
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+    @Command("photo_reuse", aliases = ["pr"], help = "Find profiles reusing the same photo")
+    fun photoReuse(args: List<String>) {
+        if (args.isEmpty()) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "Usage: photo_reuse <photo_hash>")
+            return
+        }
+        val photoHash = args[0]
+        scope.launch {
+            try {
+                val dao = GrindrPlus.database.profileTrackingDao()
+                val profiles = dao.findProfilesWithPhoto(photoHash)
+                if (profiles.isEmpty()) {
+                    GrindrPlus.showToast(Toast.LENGTH_LONG, "No profiles found with this photo")
+                    return@launch
+                }
+                val message = "Photo used by ${profiles.size} profile(s):\n" +
+                        profiles.joinToString("\n") { "• $it" }
+                GrindrPlus.showToast(Toast.LENGTH_LONG, message)
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+            }
+        }
+    }
+    @Command("cross_account", aliases = ["ca"], help = "See which accounts have interacted with this profile")
+    fun crossAccount(args: List<String>) {
+        val profileId = if (args.isNotEmpty()) args[0] else sender
+        scope.launch {
+            try {
+                val dao = GrindrPlus.database.profileAccountMappingDao()
+                val mappings = dao.getAccountsForProfile(profileId)
+                if (mappings.isEmpty()) {
+                    GrindrPlus.showToast(Toast.LENGTH_LONG, "No cross-account data for profile $profileId")
+                    return@launch
+                }
+                val message = StringBuilder()
+                message.append("Profile $profileId seen by:\n\n")
+                mappings.forEach { mapping ->
+                    val firstSeen = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                        .format(java.util.Date(mapping.firstSeen))
+                    val lastSeen = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                        .format(java.util.Date(mapping.lastSeen))
+                    message.append("• ${mapping.accountPackage}\n")
+                    message.append("  First: $firstSeen\n")
+                    message.append("  Last: $lastSeen\n")
+                    message.append("  Interactions: ${mapping.interactionCount}\n\n")
+                }
+                GrindrPlus.showToast(Toast.LENGTH_LONG, message.toString())
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+            }
+        }
+    }
+    @Command("export_profile_data", aliases = ["epd"], help = "Export all data for a profile as JSON")
+    fun exportProfileData(args: List<String>) {
+        val profileId = if (args.isNotEmpty()) args[0] else sender
+        scope.launch {
+            try {
+                val json = JSONObject()
+                // Profile snapshots
+                val snapshotsDao = GrindrPlus.database.profileTrackingDao()
+                val snapshots = snapshotsDao.getProfileHistory(profileId)
+                val snapshotsArray = JSONArray()
+                snapshots.forEach { snapshot ->
+                    snapshotsArray.put(JSONObject().apply {
+                        put("timestamp", snapshot.timestamp)
+                        put("displayName", snapshot.displayName)
+                        put("aboutMe", snapshot.aboutMe)
+                        put("age", snapshot.age)
+                        put("height", snapshot.height)
+                        put("weight", snapshot.weight)
+                    })
+                }
+                json.put("snapshots", snapshotsArray)
+                // Photo history
+                val photos = snapshotsDao.getPhotoHistory(profileId)
+                val photosArray = JSONArray()
+                photos.forEach { photo ->
+                    photosArray.put(JSONObject().apply {
+                        put("photoHash", photo.photoHash)
+                        put("photoUrl", photo.photoUrl)
+                        put("localPath", photo.localPath)
+                        put("isPrimary", photo.isPrimary)
+                        put("timestamp", photo.timestamp)
+                    })
+                }
+                json.put("photos", photosArray)
+                // Cross-account data
+                val mappingDao = GrindrPlus.database.profileAccountMappingDao()
+                val mappings = mappingDao.getAccountsForProfile(profileId)
+                val mappingsArray = JSONArray()
+                mappings.forEach { mapping ->
+                    mappingsArray.put(JSONObject().apply {
+                        put("accountPackage", mapping.accountPackage)
+                        put("firstSeen", mapping.firstSeen)
+                        put("lastSeen", mapping.lastSeen)
+                        put("interactionCount", mapping.interactionCount)
+                    })
+                }
+                json.put("accounts", mappingsArray)
+                // Conversations
+                val convDao = GrindrPlus.database.conversationTrackingDao()
+                val conversations = convDao.getConversationsForProfile(profileId)
+                val convsArray = JSONArray()
+                conversations.forEach { conv ->
+                    convsArray.put(JSONObject().apply {
+                        put("conversationId", conv.conversationId)
+                        put("accountPackage", conv.accountPackage)
+                        put("messageCount", conv.messageCount)
+                        put("firstMessage", conv.firstMessageTimestamp)
+                        put("lastMessage", conv.lastMessageTimestamp)
+                    })
+                }
+                json.put("conversations", convsArray)
+                // Save to file
+                val file = File(
+                    GrindrPlus.context.getExternalFilesDir(null),
+                    "profile_${profileId}_export.json"
+                )
+                file.writeText(json.toString(2))
+                GrindrPlus.showToast(
+                    Toast.LENGTH_LONG,
+                    "Profile data exported to: ${file.absolutePath}"
+                )
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Export failed: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+    @Command("safety_check", aliases = ["sc"], help = "Run safety check for detection risks")
+    fun safetyCheck(args: List<String>) {
+        scope.launch {
+            try {
+                val result = com.grindrplus.utils.StealthConfig.performSafetyCheck()
+                val message = buildString {
+                    if (result.isSafe) {
+                        append("✓ Safety check passed\n\n")
+                    } else {
+                        append("⚠ Issues found:\n")
+                        result.issues.forEach { append("• $it\n") }
+                        append("\n")
+                    }
+                    if (result.warnings.isNotEmpty()) {
+                        append("Warnings:\n")
+                        result.warnings.forEach { append("• $it\n") }
+                    }
+                }
+                GrindrPlus.showToast(Toast.LENGTH_LONG, message)
+            } catch (e: Exception) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+            }
+        }
+    }
+    @Command("apply_stealth", aliases = ["stealth"], help = "Apply stealth mode settings")
+    fun applyStealth(args: List<String>) {
+        try {
+            com.grindrplus.utils.StealthConfig.applySafetySettings()
+            com.grindrplus.utils.StealthConfig.initializeStealthMode()
+            GrindrPlus.showToast(
+                Toast.LENGTH_LONG,
+                "Stealth mode enabled. Restart app for full effect."
+            )
+        } catch (e: Exception) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
+        }
+    }
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\commands\Command.kt --- 
 package com.grindrplus.commands
 @Retention(AnnotationRetention.RUNTIME)
@@ -1674,6 +1959,8 @@ class CommandHandler(
         commandModules.add(Profile(recipient, sender))
         commandModules.add(Utils(recipient, sender))
         commandModules.add(Database(recipient, sender))
+        commandModules.add(MediaManager(recipient, sender))
+        commandModules.add(Scammer(recipient, sender))
     }
     fun handle(input: String) {
         val args = input.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
@@ -1773,7 +2060,7 @@ class Database(
                     )
                 }
                 val tableList = if (tables.isEmpty()) "No tables found."
-                    else tables.joinToString("\n")
+                else tables.joinToString("\n")
                 val textView = AppCompatTextView(activity).apply {
                     text = tableList
                     textSize = 14f
@@ -1801,43 +2088,6 @@ class Database(
             }
         } catch (e: Exception) {
             GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
-        }
-    }
-    private fun backupDatabase(): String? {
-        return try {
-            val context = GrindrPlus.context
-            val databases = context.databaseList()
-            val grindrUserDb = databases.firstOrNull {
-                it.contains("grindr_user") && it.endsWith(".db")
-            } ?: return null
-            val sourceDb = context.getDatabasePath(grindrUserDb)
-            if (!sourceDb.exists()) return null
-            // Create backup directory
-            val backupDir = File(Environment.getExternalStorageDirectory(), "GrindrPlusBackup")
-            if (!backupDir.exists()) {
-                backupDir.mkdirs()
-            }
-            val backupFile = File(backupDir, "grindrplus_${System.currentTimeMillis()}.db")
-            // Copy the database file
-            sourceDb.copyTo(backupFile, overwrite = true)
-            backupFile.absolutePath
-        } catch (e: Exception) {
-            null
-        }
-    }
-    // Add this command to backup the database
-    @Command("backup_db", aliases = ["bdb"], help = "Backup the database to external storage")
-    fun backupDatabaseCommand(args: List<String>) {
-        try {
-            val backupPath = backupDatabase()
-            if (backupPath != null) {
-                GrindrPlus.showToast(Toast.LENGTH_LONG,
-                    "Database backed up successfully!\nLocation: $backupPath")
-            } else {
-                GrindrPlus.showToast(Toast.LENGTH_LONG, "Failed to backup database. Check if database exists.")
-            }
-        } catch (e: Exception) {
-            GrindrPlus.showToast(Toast.LENGTH_LONG, "Error backing up database: ${e.message}")
         }
     }
     @Command("list_table", aliases = ["lt"], help = "List all rows from a specific table")
@@ -1895,79 +2145,6 @@ class Database(
             GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
         }
     }
-    @Command("copy_table", aliases = ["ct"], help = "Copy table from Grindr db to GrindrPlus db")
-    fun copyTable(args: List<String>) {
-        if (args.isEmpty()) {
-            GrindrPlus.showToast(Toast.LENGTH_LONG, "Usage: !copy_table table_name [new_table_name]")
-            return
-        }
-        val sourceTable = args[0]
-        val targetTable = args.getOrNull(1) ?: sourceTable
-        try {
-            // Step 1: Get table schema from source database
-            val schemaQuery = "SELECT sql FROM sqlite_master WHERE type='table' AND name='$sourceTable';"
-            val schemaResult = DatabaseHelper.query(schemaQuery)
-            if (schemaResult.isEmpty()) {
-                GrindrPlus.showToast(Toast.LENGTH_LONG, "Table '$sourceTable' not found in source database")
-                return
-            }
-            val createTableSQL = schemaResult[0]["sql"] as String
-            val modifiedCreateSQL = createTableSQL.replace(sourceTable, targetTable)
-            // Step 2: Create the table in GrindrPlus database
-            val grindrPlusDb = getGrindrPlusDatabase()
-            grindrPlusDb.execSQL(modifiedCreateSQL)
-            // Step 3: Copy all data
-            val dataQuery = "SELECT * FROM $sourceTable;"
-            val sourceData = DatabaseHelper.query(dataQuery)
-            if (sourceData.isNotEmpty()) {
-                val columns = sourceData[0].keys.joinToString(", ")
-                val placeholders = sourceData[0].keys.joinToString(", ") { "?" }
-                sourceData.forEach { row ->
-                    val values = row.values.map {
-                        when (it) {
-                            "NULL" -> null
-                            else -> it
-                        }
-                    }.toTypedArray()
-                    grindrPlusDb.insert(targetTable, null, values, columns, placeholders)
-                }
-            }
-            grindrPlusDb.close()
-            GrindrPlus.showToast(Toast.LENGTH_LONG,
-                "✓ Table '$sourceTable' copied to '$targetTable' (${
-                    sourceData.size} rows)")
-        } catch (e: Exception) {
-            GrindrPlus.showToast(Toast.LENGTH_LONG, "Error copying table: ${e.message}")
-        }
-    }
-    // Helper function to get GrindrPlus database
-    private fun getGrindrPlusDatabase(): SQLiteDatabase {
-        val context = GrindrPlus.context
-        return context.openOrCreateDatabase("Grindrplus.db", Context.MODE_PRIVATE, null)
-    }
-    // Helper extension function for easier insertion
-    private fun SQLiteDatabase.insert(table: String, conflictAlgorithm: Int?, values: Array<Any?>,
-                                      columns: String, placeholders: String): Long {
-        val sql = "INSERT INTO $table ($columns) VALUES ($placeholders)"
-        return if (conflictAlgorithm != null) {
-            this.compileStatement(sql).apply {
-                values.forEachIndexed { index, value ->
-                    when (value) {
-                        null -> bindNull(index + 1)
-                        is Int -> bindLong(index + 1, value.toLong())
-                        is Long -> bindLong(index + 1, value)
-                        is Float -> bindDouble(index + 1, value.toDouble())
-                        is Double -> bindDouble(index + 1, value)
-                        is Boolean -> bindLong(index + 1, if (value) 1 else 0)
-                        else -> bindString(index + 1, value.toString())
-                    }
-                }
-            }.executeInsert()
-        } else {
-            this.execSQL(sql, values)
-            -1 // Return -1 since we can't get rowId with execSQL
-        }
-    }
     @Command("list_databases", aliases = ["ldbs"], help = "List all database files in the app's files directory")
     fun listDatabases(args: List<String>) {
         try {
@@ -2012,7 +2189,7 @@ class Database(
             GrindrPlus.showToast(Toast.LENGTH_LONG, "Error: ${e.message}")
         }
     }
-}
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\commands\Location.kt --- 
 package com.grindrplus.commands
 class Location(recipient: String, sender: String) : CommandModule("Location", recipient, sender) {
@@ -2281,6 +2458,69 @@ class Location(recipient: String, sender: String) : CommandModule("Location", re
         }
     }
 }
+ 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\commands\MediaManager.kt --- 
+package com.grindrplus.commands
+class MediaManager(
+    recipient: String,
+    sender: String
+) : CommandModule("MediaManager", recipient, sender) {
+    private fun getScammerDb(): SQLiteDatabase {
+        val dbDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!dbDir.exists()) {
+            dbDir.mkdirs()
+        }
+        val dbFile = File(dbDir, "ScammerDB.db")
+        return SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+    }
+    @Command("log_media", aliases = ["logm"], help = "Cross-references saved media and logs it to the ScammerDB.")
+    fun logSavedMedia(args: List<String>) {
+        try {
+            val savedImageIds = MediaUtils.getAllSavedMediaIds(MediaUtils.MediaType.IMAGE)
+            val savedVideoIds = MediaUtils.getAllSavedMediaIds(MediaUtils.MediaType.VIDEO)
+            val allMediaIds = (savedImageIds + savedVideoIds).distinct()
+            if (allMediaIds.isEmpty()) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "No saved media found to log.")
+                return
+            }
+            val db = getScammerDb()
+            var successfulLogs = 0
+            allMediaIds.forEach { mediaId ->
+                try {
+                    val profileResult = DatabaseHelper.query(
+                        "SELECT profile_id FROM profile_photo WHERE photo_hash = ? OR photo_url LIKE ?",
+                        arrayOf(mediaId.toString(), "%$mediaId%")
+                    )
+                    val profileId = profileResult.firstOrNull()?.get("profile_id")?.toString()
+                    if (profileId != null) {
+                        val profileInfo = DatabaseHelper.query(
+                            "SELECT display_name FROM profile WHERE profile_id = ?",
+                            arrayOf(profileId)
+                        ).firstOrNull()
+                        val displayName = profileInfo?.get("display_name")?.toString() ?: "Unknown Name"
+                        val mediaType = if (savedImageIds.contains(mediaId)) "IMAGE" else "VIDEO"
+                        val values = ContentValues().apply {
+                            put("media_id", mediaId.toString())
+                            put("profile_id", profileId)
+                            put("display_name", displayName)
+                            put("media_type", mediaType)
+                            put("date_added", System.currentTimeMillis() / 1000)
+                        }
+                        db.insertWithOnConflict("scammer_media", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+                        successfulLogs++
+                    }
+                } catch (e: Exception) {
+                    Logger.e("Error logging media ID $mediaId: ${e.message}")
+                }
+            }
+            db.close()
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "✅ Logged data for $successfulLogs media files to ScammerDB.")
+        } catch (e: Exception) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "❌ Error logging media: ${e.message}")
+            Logger.e(e.toString())
+        }
+    }
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\commands\Profile.kt --- 
 package com.grindrplus.commands
 class Profile(
@@ -2514,6 +2754,113 @@ class Profile(
                         true
                     }
                 }
+        }
+    }
+} 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\commands\Scammer.kt --- 
+package com.grindrplus.commands
+class Scammer(
+    recipient: String,
+    sender: String
+) : CommandModule("Scammer", recipient, sender) {
+    private fun getScammerDb(): SQLiteDatabase {
+        val dbDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (!dbDir.exists()) {
+            dbDir.mkdirs()
+        }
+        val dbFile = File(dbDir, "ScammerDB.db")
+        return SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+    }
+    private fun initializeDatabase() {
+        val db = getScammerDb()
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS scammers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                grindr_id TEXT NOT NULL UNIQUE,
+                name TEXT,
+                location TEXT,
+                notes TEXT,
+                date_added INTEGER
+            )
+        """)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS scammer_media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                media_id TEXT NOT NULL UNIQUE,
+                profile_id TEXT,
+                display_name TEXT,
+                media_type TEXT,
+                date_added INTEGER
+            )
+        """)
+        db.close()
+    }
+    @Command("add_scammer", aliases = ["scammer"], help = "Add a scammer to the database. Usage: /add_scammer [id] [name] | [notes]")
+    fun addScammer(args: List<String>) {
+        if (args.isEmpty()) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "Usage: /add_scammer [id] [name] | [notes]")
+            return
+        }
+        try {
+            initializeDatabase()
+            val db = getScammerDb()
+            val grindrId = args.getOrNull(0) ?: sender
+            val parts = args.drop(1).joinToString(" ").split("|")
+            val name = parts.getOrNull(0)?.trim()
+            val notes = parts.getOrNull(1)?.trim()
+            val values = ContentValues().apply {
+                put("grindr_id", grindrId)
+                put("name", name)
+                put("location", "Thailand") // Default location as requested
+                put("notes", notes)
+                put("date_added", System.currentTimeMillis() / 1000)
+            }
+            db.insertWithOnConflict("scammers", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            db.close()
+            GrindrPlus.showToast(Toast.LENGTH_SHORT, "✅ Scammer logged: $grindrId")
+        } catch (e: Exception) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "❌ Error logging scammer: ${e.message}")
+        }
+    }
+    @Command("list_scammers", aliases = ["scammers"], help = "List all logged scammers.")
+    fun listScammers(args: List<String>) {
+        try {
+            val db = getScammerDb()
+            val cursor = db.rawQuery("SELECT grindr_id, name, notes FROM scammers ORDER BY date_added DESC", null)
+            val scammerList = mutableListOf<String>()
+            if (cursor.moveToFirst()) {
+                do {
+                    val id = cursor.getString(cursor.getColumnIndexOrThrow("grindr_id"))
+                    val name = cursor.getString(cursor.getColumnIndexOrThrow("name"))
+                    val notes = cursor.getString(cursor.getColumnIndexOrThrow("notes"))
+                    scammerList.add("ID: $id\nName: $name\nNotes: $notes")
+                } while (cursor.moveToNext())
+            }
+            cursor.close()
+            db.close()
+            val message = if (scammerList.isEmpty()) "No scammers logged yet."
+            else scammerList.joinToString("\n\n")
+            GrindrPlus.runOnMainThreadWithCurrentActivity { activity ->
+                val dialogView = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(60, 40, 60, 40)
+                }
+                val textView = AppCompatTextView(activity).apply {
+                    text = message
+                    textSize = 14f
+                    setTextColor(Color.WHITE)
+                }
+                dialogView.addView(textView)
+                AlertDialog.Builder(activity)
+                    .setTitle("Logged Scammers")
+                    .setView(dialogView)
+                    .setPositiveButton("Close") { dialog, _ -> dialog.dismiss() }
+                    .setNegativeButton("Copy All") { _, _ -> copyToClipboard("Scammers", message) }
+                    .create()
+                    .show()
+            }
+        } catch (e: Exception) {
+            GrindrPlus.showToast(Toast.LENGTH_LONG, "❌ Error listing scammers: ${e.message}")
         }
     }
 } 
@@ -2930,6 +3277,7 @@ object CredentialsLogger {
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\DatabaseHelper.kt --- 
 package com.grindrplus.core
 object DatabaseHelper {
@@ -2999,6 +3347,7 @@ object DatabaseHelper {
         database.close()
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\EventManager.kt --- 
 package com.grindrplus.core
 data class ServerNotificationReceived(
@@ -3038,64 +3387,41 @@ object EventManager {
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\HttpBodyLogger.kt --- 
 package com.grindrplus.core
 object HttpBodyLogger {
-    private val dbFile = File(
-        Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-        "HttpBodyLogs.db"
-    )
-    private fun getDatabase(): SQLiteDatabase {
-        return SQLiteDatabase.openOrCreateDatabase(dbFile, null)
-    }
-    // Public entry point with optional delay
-    fun initialize(delayMs: Long = 0L) {
-        if (delayMs > 0) {
-            Logger.d("Scheduling HttpBodyLogger.initialize() after ${delayMs}ms", LogSource.HTTP)
-            Handler(Looper.getMainLooper()).postDelayed({
-                initializeInternal()
-            }, delayMs)
-        } else {
-            initializeInternal()
-        }
-    }
-    // Actual setup logic
-    private fun initializeInternal() {
-        val db = getDatabase()
-        try {
-            db.execSQL(
-                """
-                CREATE TABLE IF NOT EXISTS logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp INTEGER NOT NULL,
-                    url TEXT NOT NULL,
-                    method TEXT NOT NULL,
-                    response_body TEXT
-                )
-                """.trimIndent()
-            )
-        } finally {
-            db.close()
-        }
-    }
+    private val scope = CoroutineScope(Dispatchers.IO)
+    private const val MAX_ENTRIES = 10_000
+    private const val DELETE_BATCH_SIZE = 1_000 // Delete 1,000 entries at a time to stay under limit
     fun log(url: String, method: String, body: String?) {
         if (body.isNullOrEmpty() || !body.trim().startsWith("{")) {
-            return // Don't log non-JSON or empty bodies
+            Logger.d("Skipping non-JSON or empty body for $method $url", LogSource.HTTP)
+            return
         }
-        val db = getDatabase()
-        try {
-            val values = ContentValues().apply {
-                put("timestamp", System.currentTimeMillis() / 1000)
-                put("url", url)
-                put("method", method)
-                put("response_body", body)
+        scope.launch {
+            try {
+                // Check current entry count
+                val count = GrindrPlus.database.httpBodyLogDao().getCount()
+                if (count >= MAX_ENTRIES) {
+                    // Delete oldest entries to make room
+                    val entriesToDelete = (count - MAX_ENTRIES + 1).toInt().coerceAtMost(DELETE_BATCH_SIZE)
+                    GrindrPlus.database.httpBodyLogDao().deleteOldest(entriesToDelete)
+                    Logger.i("Deleted $entriesToDelete oldest HTTP log entries to stay under $MAX_ENTRIES limit", LogSource.HTTP)
+                }
+                // Insert new log entry
+                val logEntry = HttpBodyLogEntity(
+                    timestamp = System.currentTimeMillis() / 1000,
+                    url = url,
+                    method = method,
+                    response_body = body
+                )
+                GrindrPlus.database.httpBodyLogDao().insert(logEntry)
+                Logger.i("Successfully logged HTTP body for $method $url", LogSource.HTTP)
+            } catch (e: Exception) {
+                Logger.e("Failed to write to HTTP body log database: ${e.message}", LogSource.HTTP)
             }
-            db.insert("logs", null, values)
-        } catch (e: Exception) {
-            Logger.e("Failed to write to HTTP body log database: ${e.message}")
-        } finally {
-            db.close()
         }
     }
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\HttpLogger.kt --- 
+/*
 package com.grindrplus.core
 object HttpLogger {
     private val logFile = File(
@@ -3128,7 +3454,8 @@ object HttpLogger {
             Logger.e("Failed to write to HTTP log file: ${e.message}")
         }
     }
-} 
+}*/
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\InstanceManager.kt --- 
 package com.grindrplus.core
 class InstanceManager(private val classLoader: ClassLoader) {
@@ -3153,6 +3480,7 @@ class InstanceManager(private val classLoader: ClassLoader) {
         instances[className]?.let { callback?.invoke(it) }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\Logger.kt --- 
 package com.grindrplus.core
 enum class LogLevel { DEBUG, INFO, WARNING, ERROR, SUCCESS }
@@ -3298,6 +3626,47 @@ fun Task.logi(message: String) = Logger.i(message, LogSource.TASK, this.id)
 fun Task.logw(message: String) = Logger.w(message, LogSource.TASK, this.id)
 fun Task.loge(message: String) = Logger.e(message, LogSource.TASK, this.id)
 fun Task.logs(message: String) = Logger.s(message, LogSource.TASK, this.id) 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\SQLTransactionLogger.kt --- 
+package com.grindrplus.core
+object SqlTransactionLogger {
+    private const val FILENAME = "transactions.sql"
+    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    suspend fun log(sql: String, args: Array<out Any?>? = null) {
+        if (sql.isBlank()) return
+        withContext(Dispatchers.IO) {
+            try {
+                val context = GrindrPlus.context
+                val storageUriStr = Config.get("storage_uri", "") as? String
+                if (storageUriStr.isNullOrEmpty()) return@withContext
+                val docDir = DocumentFile.fromTreeUri(context, Uri.parse(storageUriStr))
+                if (docDir == null || !docDir.canWrite()) {
+                    Logger.w("SqlTransactionLogger: Cannot write to directory.")
+                    return@withContext
+                }
+                var logFile = docDir.findFile(FILENAME)
+                if (logFile == null) {
+                    logFile = docDir.createFile("application/sql", FILENAME)
+                }
+                if (logFile == null) return@withContext
+                // Build a more detailed log entry
+                val logEntry = buildString {
+                    append("-- Transaction at ${dateFormat.format(Date())}\n")
+                    val formattedSql = if (sql.trim().endsWith(";")) sql.trim() else "${sql.trim()};"
+                    append(formattedSql)
+                    if (!args.isNullOrEmpty()) {
+                        append("\n-- ARGS: ${args.joinToString(", ") { it?.toString() ?: "NULL" }}\n")
+                    }
+                    append("\n")
+                }
+                context.contentResolver.openOutputStream(logFile.uri, "wa")?.use {
+                    it.write(logEntry.toByteArray())
+                }
+            } catch (e: IOException) {
+                Logger.e("Failed to write to SQL transaction log: ${e.message}")
+            }
+        }
+    }
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\TaskScheduler.kt --- 
 package com.grindrplus.core
 class TaskScheduler(private val scope: CoroutineScope) {
@@ -3459,6 +3828,62 @@ object Utils {
         )
         startActivityMethod.invoke(null, context, intent)
     }
+    fun restoreDeletedMessages(activity: Activity) {
+        val backupFile = File(context.filesDir, "deleted_messages_backup.json")
+        if (!backupFile.exists()) {
+            GrindrPlus.showToast(Toast.LENGTH_SHORT, "No deleted messages to restore")
+            return
+        }
+        showProgressDialog(
+            context = activity,
+            message = "Restoring deleted messages...",
+            onCancel = { /* ... */ },
+            onRunInBackground = { updateProgress, onComplete ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val json = backupFile.readText()
+                        val jsonArray = JSONArray(json)
+                        val messages = (0 until jsonArray.length()).map { i ->
+                            DeletedMessage.fromJson(jsonArray.getJSONObject(i))
+                        }
+                        messages.forEachIndexed { index, message ->
+                            // Insert the message back into the database
+                            restoreMessageToDatabase(message)
+                            val progress = ((index + 1) * 100) / messages.size
+                            updateProgress(progress)
+                            Thread.sleep(100) // Small delay to avoid overwhelming
+                        }
+                        withContext(Dispatchers.Main) {
+                            backupFile.delete()
+                            onComplete(true)
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            onComplete(false)
+                        }
+                    }
+                }
+            },
+            successMessage = "Deleted messages restored successfully!",
+            failureMessage = "Failed to restore deleted messages."
+        )
+    }
+    private fun restoreMessageToDatabase(message: DeletedMessage) {
+        // Use your existing DatabaseHelper to re-insert the message
+        val values = ContentValues().apply {
+            put("message_id", message.messageId)
+            put("conversation_id", message.conversationId)
+            put("sender_id", message.senderId)
+            put("recipient_id", message.recipientId)
+            put("message_text", message.messageText)
+            put("timestamp", message.timestamp)
+            put("message_type", message.messageType)
+            put("is_unsent", if (message.isUnsent) 1 else 0)
+        }
+        DatabaseHelper.insert("chat_messages", values)
+        // The FTS entry will be automatically recreated by Grindr's triggers
+        // or you might need to manually insert into chat_message_fts
+    }
     fun calculateBMI(isMetric: Boolean, weight: Double, height: Double): Double {
         return if (isMetric) {
             weight / (height / 100).pow(2)
@@ -3503,7 +3928,7 @@ object Utils {
         message: String,
         onCancel: () -> Unit,
         onRunInBackground: (updateProgress: (Int) -> Unit, onComplete: (Boolean) -> Unit) -> Unit,
-        successMessage: String = "All blocks have been imported!",
+        successMessage: String = "All blocks have been 
         failureMessage: String = "Something went wrong. Please try again."
     ) {
         lateinit var dialog: AlertDialog
@@ -3590,15 +4015,15 @@ object Utils {
     fun handleImports(activity: Activity) {
         val homeActivity = "com.grindrapp.android.ui.home.HomeActivity"
         if (activity.javaClass.name == homeActivity && !isImportingSomething) {
-            val favoritesFile = context.getFileStreamPath("favorites_to_import.txt")
-            val blocksFile = context.getFileStreamPath("blocks_to_import.txt")
+            val favoritesFile = context.getFileStreamPath("favorites_to_
+            val blocksFile = context.getFileStreamPath("blocks_to_
             if (favoritesFile.exists() && blocksFile.exists()) {
                 showWarningDialog(
                     context = activity,
-                    message = "Favorites and Blocks import files detected. GrindrPlus will process the favorites list first. " +
-                            "Blocks import will be done on the next app restart.",
+                    message = "Favorites and Blocks 
+                            "Blocks 
                     onConfirm = {
-                        val threshold = (Config.get("favorites_import_threshold", "500") as String).toInt()
+                        val threshold = (Config.get("favorites_
                         val favorites = favoritesFile.readLines()
                         if (favorites.size > 50 && threshold < 1000) {
                             showWarningDialog(
@@ -3609,7 +4034,7 @@ object Utils {
                                     startFavoritesImport(activity, favorites, favoritesFile, threshold)
                                 },
                                 onCancel = {
-                                    Logger.i("Favorites import canceled by the user.")
+                                    Logger.i("Favorites 
                                 }
                             )
                         } else {
@@ -3621,7 +4046,7 @@ object Utils {
                     }
                 )
             } else if (favoritesFile.exists()) {
-                val threshold = (Config.get("favorites_import_threshold", "500") as String).toInt()
+                val threshold = (Config.get("favorites_
                 val favorites = favoritesFile.readLines()
                 if (favorites.size > 50 && threshold < 1000) {
                     showWarningDialog(
@@ -3633,14 +4058,14 @@ object Utils {
                         },
                         onCancel = {
                             isImportingSomething = false
-                            Logger.i("Favorites import canceled by the user.")
+                            Logger.i("Favorites 
                         }
                     )
                 } else {
                     startFavoritesImport(activity, favorites, favoritesFile, threshold)
                 }
             } else if (blocksFile.exists()) {
-                val threshold = (Config.get("block_import_threshold", "500") as String).toInt()
+                val threshold = (Config.get("block_
                 val blocks = blocksFile.readLines()
                 if (blocks.size > 100 && threshold < 1000) {
                     showWarningDialog(
@@ -3652,7 +4077,7 @@ object Utils {
                         },
                         onCancel = {
                             isImportingSomething = false
-                            Logger.i("Block import canceled by the user.")
+                            Logger.i("Block 
                         }
                     )
                 } else {
@@ -3671,11 +4096,11 @@ object Utils {
             showProgressDialog(
                 context = activity,
                 message = "Importing favorites...",
-                successMessage = "Favorites import completed.",
-                failureMessage = "Favorites import failed.",
+                successMessage = "Favorites 
+                failureMessage = "Favorites 
                 onCancel = {
                     isImportingSomething = false
-                    Logger.i("Favorites import canceled by the user.")
+                    Logger.i("Favorites 
                 },
                 onRunInBackground = { updateProgress, onComplete ->
                     CoroutineScope(Dispatchers.IO).launch {
@@ -3709,7 +4134,7 @@ object Utils {
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                val message = "An error occurred while importing favorites: ${e.message ?: "Unknown error"}"
+                                val message = "An error occurred while 
                                 GrindrPlus.showToast(Toast.LENGTH_LONG, message)
                                 Logger.apply {
                                     e(message)
@@ -3724,11 +4149,48 @@ object Utils {
                 }
             )
         } catch (e: Exception) {
-            val message = "An error occurred while importing favorites: ${e.message ?: "Unknown error"}"
+            val message = "An error occurred while 
             GrindrPlus.showToast(Toast.LENGTH_LONG, message)
             Logger.apply {
                 e(message)
                 writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+    data class DeletedMessage(
+        val messageId: String,
+        val conversationId: String,
+        val senderId: String,
+        val recipientId: String,
+        val messageText: String,
+        val timestamp: Long,
+        val messageType: String,
+        val isUnsent: Boolean
+    ) {
+        fun toJson(): JSONObject {
+            return JSONObject().apply {
+                put("message_id", messageId)
+                put("conversation_id", conversationId)
+                put("sender_id", senderId)
+                put("recipient_id", recipientId)
+                put("message_text", messageText)
+                put("timestamp", timestamp)
+                put("message_type", messageType)
+                put("is_unsent", isUnsent)
+            }
+        }
+        companion object {
+            fun fromJson(json: JSONObject): DeletedMessage {
+                return DeletedMessage(
+                    messageId = json.getString("message_id"),
+                    conversationId = json.getString("conversation_id"),
+                    senderId = json.getString("sender_id"),
+                    recipientId = json.getString("recipient_id"),
+                    messageText = json.getString("message_text"),
+                    timestamp = json.getLong("timestamp"),
+                    messageType = json.getString("message_type"),
+                    isUnsent = json.getBoolean("is_unsent")
+                )
             }
         }
     }
@@ -3743,11 +4205,11 @@ object Utils {
             showProgressDialog(
                 context = activity,
                 message = "Importing blocks...",
-                successMessage = "Block import completed.",
-                failureMessage = "Block import failed.",
+                successMessage = "Block 
+                failureMessage = "Block 
                 onCancel = {
                     isImportingSomething = false
-                    Logger.i("Block import canceled by the user.")
+                    Logger.i("Block 
                 },
                 onRunInBackground = { updateProgress, onComplete ->
                     CoroutineScope(Dispatchers.IO).launch {
@@ -3769,7 +4231,7 @@ object Utils {
                             }
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                val message = "An error occurred while importing blocks: ${e.message ?: "Unknown error"}"
+                                val message = "An error occurred while 
                                 GrindrPlus.showToast(Toast.LENGTH_LONG, message)
                                 Logger.apply {
                                     e(message)
@@ -3785,7 +4247,7 @@ object Utils {
                 }
             )
         } catch (e: Exception) {
-            val message = "An error occurred while importing blocks: ${e.message ?: "Unknown error"}"
+            val message = "An error occurred while 
             GrindrPlus.apply {
                 shouldTriggerAntiblock = true
                 showToast(Toast.LENGTH_LONG, message)
@@ -4295,6 +4757,7 @@ private inline fun <T> Response.useBody(block: (String?) -> T): T {
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\core\http\Interceptor.kt --- 
 package com.grindrplus.core.http
+//
 class Interceptor(
     private val userSession: Any,
     private val userAgent: Any,
@@ -4304,9 +4767,8 @@ class Interceptor(
         // search for 'getJwt().length() > 0 &&' in userSession
         val isLoggedIn = invokeMethodSafe(userSession, "s") as? Boolean ?: false
         if (!isLoggedIn) {
-            PermissionManager.requestExternalStoragePermission(GrindrPlus.context, delayMs = 7000)
+            PermissionManager.requestExternalStoragePermission(GrindrPlus.context, delayMs = 3000)
             Logger.i("Triggered external storage permission request from Interceptor (user not logged in)", LogSource.HTTP)
-           HttpBodyLogger.initialize(delayMs = 7000)
         }
         val builder: Builder = originalRequest.newBuilder()
         if (isLoggedIn) {
@@ -4390,14 +4852,14 @@ class Interceptor(
             val modifiedRequest = modifyRequest(request)
             Logger.d("Intercepting request to: ${request.url}", LogSource.HTTP)
             val response= chain.proceed(modifiedRequest)
-            HttpLogger.log(modifiedRequest, response)
+          //  HttpLogger.log(modifiedRequest, response)
             CredentialsLogger.log(
                 modifiedRequest.header("Authorization"),
                 modifiedRequest.header("L-Device-Info"),
                 modifiedRequest.header("User-Agent"))
             val responseBody = response.peekBody(Long.MAX_VALUE).string()
             if (response.header("Content-Type")?.contains("application/json") == true) {
-                HttpBodyLogger.log(modifiedRequest.url.toString(), modifiedRequest.method, responseBody)
+                HttpBodyLogger.log(modifiedRequest.url.toString(), modifiedRequest.method, body = responseBody)
             }
             return response
         } catch (e: SocketTimeoutException) {
@@ -4470,7 +4932,7 @@ object PermissionManager {
     fun autoRequestOnFirstLaunch(context: Context) {
         val firstLaunch = Config.get("first_launch", true) as Boolean
         if (firstLaunch) {
-            requestExternalStoragePermission(context, delayMs = 3000)
+            requestExternalStoragePermission(context, delayMs = 7000)
         }
     }
     // Optional: Trigger after install confirmation (commented out)
@@ -4512,8 +4974,12 @@ class AllowScreenshots : Hook(
 package com.grindrplus.hooks
 class AntiBlock : Hook(
     "Anti Block",
-    "Notifies you when someone blocks or unblocks you"
+    "Notifies you when someone blocks or unblocks you and backs up deleted conversations"
 ) {
+    private val deletedConversationsBackup = mutableListOf<DeletedConversation>()
+    private val backupFile by lazy {
+        File(GrindrPlus.context.filesDir, "deleted_conversations_backup.json")
+    }
     private val scope = CoroutineScope(Dispatchers.IO)
     private var myProfileId: Long = 0
     private val chatDeleteConversationPlugin = "F6.c" // search for 'com.grindrapp.android.chat.ChatDeleteConversationPlugin'
@@ -4625,74 +5091,125 @@ class AntiBlock : Hook(
             throw Exception("Failed to fetch profile data: ${response.body?.string()}")
         }
     }
-    private fun handleProfileResponse(profileId: Long, conversationIds: String, response: String): Boolean {
+    private fun backupConversationBeforeDelete(conversationId: String) {
         try {
-            val jsonResponse = JSONObject(response)
-            val profilesArray = jsonResponse.optJSONArray("profiles")
-            if (profilesArray == null || profilesArray.length() == 0) {
-                var displayName = ""
-                try {
-                    displayName = (DatabaseHelper.query(
-                        "SELECT name FROM chat_conversations WHERE conversation_id = ?",
-                        arrayOf(conversationIds)
-                    ).firstOrNull()?.get("name") as? String)?.takeIf {
-                            name -> name.isNotEmpty() } ?: profileId.toString()
-                } catch (e: Exception) {
-                    loge("Error fetching display name: ${e.message}")
-                    Logger.writeRaw(e.stackTraceToString())
-                    displayName = profileId.toString()
-                }
-                displayName = if (displayName == profileId.toString() || displayName == "null")
-                { profileId.toString() } else { "$displayName ($profileId)" }
-                GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, true,
-                    GrindrPlus.packageName)
-                if (Config.get("anti_block_use_toasts", false) as Boolean) {
-                    GrindrPlus.showToast(Toast.LENGTH_LONG, "Blocked by $displayName")
-                } else {
-                    GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
-                        "Blocked by User",
-                        "You have been blocked by user $displayName",
-                        10000000 + (profileId % 10000000).toInt(),
-                        listOf("Copy ID"),
-                        listOf("COPY"),
-                        listOf(profileId.toString(), profileId.toString()),
-                        BridgeService.CHANNEL_BLOCKS,
-                        "Block Notifications",
-                        "Notifications when users block you"
-                    )
-                }
-                return true
-            } else {
-                val profile = profilesArray.getJSONObject(0)
-                var displayName = profile.optString("displayName", profileId.toString())
-                    .takeIf { it.isNotEmpty() && it != "null" } ?: profileId.toString()
-                displayName = if (displayName != profileId.toString()) "$displayName ($profileId)" else displayName
-                GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, false,
-                    GrindrPlus.packageName)
-                if (Config.get("anti_block_use_toasts", false) as Boolean) {
-                    GrindrPlus.showToast(Toast.LENGTH_LONG, "Unblocked by $displayName")
-                } else {
-                    GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
-                        "Unblocked by $displayName",
-                        "$displayName has unblocked you.",
-                        20000000 + (profileId % 10000000).toInt(),
-                        listOf("Copy ID"),
-                        listOf("COPY"),
-                        listOf(profileId.toString()),
-                        BridgeService.CHANNEL_UNBLOCKS,
-                        "Unblock Notifications",
-                        "Notifications when users unblock you"
-                    )
-                }
-                return false
-            }
+            val conversations = DatabaseHelper.query(
+                "SELECT * FROM chat_conversations WHERE conversation_id = ?",
+                arrayOf(conversationId)
+            )
+            val messages = DatabaseHelper.query(
+                "SELECT * FROM chat_messages WHERE conversation_id = ?",
+                arrayOf(conversationId)
+            )
+            val deletedConv = DeletedConversation(
+                conversationId = conversationId,
+                conversationData = conversations.firstOrNull() ?: emptyMap(),
+                messages = messages,
+                deletedAt = System.currentTimeMillis()
+            )
+            deletedConversationsBackup.add(deletedConv)
+            saveConversationBackup()
+            logd("Backed up conversation $conversationId with ${messages.size} messages")
         } catch (e: Exception) {
-            loge("Error handling profile response: ${e.message ?: "Unknown error"}")
-            Logger.writeRaw(e.stackTraceToString())
-            return false
+            loge("Error backing up conversation: ${e.message}")
+        }
+    }
+    private fun saveConversationBackup() {
+        try {
+            val jsonArray = deletedConversationsBackup.map { it.toJson() }
+            backupFile.writeText(JSONArray(jsonArray).toString())
+        } catch (e: Exception) {
+            loge("Error saving conversation backup: ${e.message}")
         }
     }
 }
+data class DeletedConversation(
+    val conversationId: String,
+    val conversationData: Map<String, Any?>,
+    val messages: List<Map<String, Any?>>,
+    val deletedAt: Long
+) {
+    fun toJson(): JSONObject {
+        return JSONObject().apply {
+            put("conversationId", conversationId)
+            put("conversationData", JSONObject(conversationData))
+            put("messages", JSONArray(messages.map { JSONObject(it) }))
+            put("deletedAt", deletedAt)
+        }
+    }
+}
+private fun handleProfileResponse(profileId: Long, conversationIds: String, response: String): Boolean {
+    try {
+        val jsonResponse = JSONObject(response)
+        val profilesArray = jsonResponse.optJSONArray("profiles")
+        if (profilesArray == null || profilesArray.length() == 0) {
+            var displayName = ""
+            try {
+                displayName = (DatabaseHelper.query(
+                    "SELECT name FROM chat_conversations WHERE conversation_id = ?",
+                    arrayOf(conversationIds)
+                ).firstOrNull()?.get("name") as? String)?.takeIf {
+                        name -> name.isNotEmpty()
+                } ?: profileId.toString()
+            } catch (e: Exception) {
+                // Use Logger class directly instead of loge
+                Logger.e("Error fetching display name: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+                displayName = profileId.toString()
+            }
+            displayName = if (displayName == profileId.toString() || displayName == "null")
+                profileId.toString()
+            else
+                "$displayName ($profileId)"
+            GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, true,
+                GrindrPlus.packageName)
+            if (Config.get("anti_block_use_toasts", false) as Boolean) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Blocked by $displayName")
+            } else {
+                GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
+                    "Blocked by User",
+                    "You have been blocked by user $displayName",
+                    10000000 + (profileId % 10000000).toInt(),
+                    listOf("Copy ID"),
+                    listOf("COPY"),
+                    listOf(profileId.toString(), profileId.toString()),
+                    BridgeService.CHANNEL_BLOCKS,
+                    "Block Notifications",
+                    "Notifications when users block you"
+                )
+            }
+            return true
+        } else {
+            val profile = profilesArray.getJSONObject(0)
+            var displayName = profile.optString("displayName", profileId.toString())
+                .takeIf { it.isNotEmpty() && it != "null" } ?: profileId.toString()
+            displayName = if (displayName != profileId.toString()) "$displayName ($profileId)" else displayName
+            GrindrPlus.bridgeClient.logBlockEvent(profileId.toString(), displayName, false,
+                GrindrPlus.packageName)
+            if (Config.get("anti_block_use_toasts", false) as Boolean) {
+                GrindrPlus.showToast(Toast.LENGTH_LONG, "Unblocked by $displayName")
+            } else {
+                GrindrPlus.bridgeClient.sendNotificationWithMultipleActions(
+                    "Unblocked by $displayName",
+                    "$displayName has unblocked you.",
+                    20000000 + (profileId % 10000000).toInt(),
+                    listOf("Copy ID"),
+                    listOf("COPY"),
+                    listOf(profileId.toString()),
+                    BridgeService.CHANNEL_UNBLOCKS,
+                    "Unblock Notifications",
+                    "Notifications when users unblock you"
+                )
+            }
+            return false
+        }
+    } catch (e: Exception) {
+        // Use Logger class directly
+        Logger.e("Error handling profile response: ${e.message ?: "Unknown error"}")
+        Logger.writeRaw(e.stackTraceToString())
+        return false
+    }
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\AntiDetection.kt --- 
 package com.grindrplus.hooks
 class AntiDetection : Hook(
@@ -4949,39 +5466,52 @@ class ChatBackupHook : Hook(
 ) {
     private val chatMessagesDao = "com.grindrapp.android.persistence.dao.ChatMessagesDao"
     override fun init() {
-        findClass(chatMessagesDao).hook("insertMessage", HookStage.AFTER) { param ->
-            if (!isHookEnabled()) return@hook
-            val message = param.arg<Any>(0)
-            if (message == null) {
-                Logger.w("ChatMessage object was null, cannot backup.", LogSource.HOOK)
-                return@hook
-            }
-            try {
-                val message_id = getObjectField(message, "messageId") as String
-                val conversation_id = getObjectField(message, "conversationId") as String
-                val sender = getObjectField(message, "senderId").toString()
-                val body = getObjectField(message, "body") as? String ?: ""
-                val timestamp = getObjectField(message, "timestamp") as Long
-                val type = getObjectField(message, "type") as String
-                val chatBackup = ChatBackup(
-                    message_id = message_id,
-                    conversation_id = conversation_id,
-                    sender = sender,
-                    body = body,
-                    timestamp = timestamp,
-                    type = type
-                )
-                GrindrPlus.executeAsync {
-                    try {
-                        GrindrPlus.database.chatBackupDao().insert(chatBackup)
-                        Logger.d("Successfully backed up message $message_id", LogSource.HOOK)
-                    } catch (e: Exception) {
-                        Logger.e("Database error backing up message: ${e.message}", LogSource.HOOK)
-                    }
+        try {
+            // Attempt to find your custom class and store it in a variable.
+            val chatMessagesDaoClass = findClass(chatMessagesDao)
+            // If the line above succeeds, the class was found. Log it.
+            Logger.log("Successfully found ChatMessagesDao. Initializing ChatBackupHook.")
+            // Now, use the variable to set up the hook on the "insertMessage" method.
+            chatMessagesDaoClass.hook("insertMessage", HookStage.AFTER) { param ->
+                if (!isHookEnabled()) return@hook
+                val message = param.arg<Any>(0)
+                if (message == null) {
+                    Logger.w("ChatMessage object was null, cannot backup.", LogSource.HOOK)
+                    return@hook
                 }
-            } catch (e: Exception) {
-                Logger.e("Failed to extract chat message: ${e.message}", LogSource.HOOK)
+                try {
+                    val message_id = getObjectField(message, "messageId") as String
+                    val conversation_id = getObjectField(message, "conversationId") as String
+                    val sender = getObjectField(message, "senderId").toString()
+                    val body = getObjectField(message, "body") as? String ?: ""
+                    val timestamp = getObjectField(message, "timestamp") as Long
+                    val type = getObjectField(message, "type") as String
+                    val chatBackup = ChatBackup(
+                        message_id = message_id,
+                        conversation_id = conversation_id,
+                        sender = sender,
+                        body = body,
+                        timestamp = timestamp,
+                        type = type
+                    )
+                    GrindrPlus.executeAsync {
+                        try {
+                            GrindrPlus.database.chatBackupDao().insert(chatBackup)
+                            Logger.d("Successfully backed up message $message_id", LogSource.HOOK)
+                        } catch (e: Exception) {
+                            Logger.e(
+                                "Database error backing up message: ${e.message}",
+                                LogSource.HOOK
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    Logger.e("Failed to extract chat message: ${e.message}", LogSource.HOOK)
+                }
             }
+        } catch (e: ClassNotFoundException) {
+            // This block executes if the class is NOT found, preventing the crash.
+            Logger.log("ChatMessagesDao not found. Skipping ChatBackupHook initialization.")
         }
     }
 } 
@@ -5037,6 +5567,100 @@ class ChatTerminal : Hook(
         }
     }
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\ConversationTracker.kt --- 
+package com.grindrplus.hooks
+class ConversationTracker : Hook(
+    "Conversation Tracker",
+    "Tracks all conversations and messages across multiple accounts"
+) {
+    private val scope = CoroutineScope(Dispatchers.IO)
+    private val chatMessage = "com.grindrapp.android.chat.model.ChatMessage"
+    private val chatConversation = "com.grindrapp.android.persistence.model.ChatConversation"
+    override fun init() {
+        // Hook message insertion
+        findClass("com.grindrapp.android.persistence.dao.ChatMessagesDao")
+            .hook("insertMessage", HookStage.AFTER) { param ->
+                if (param.args().isNotEmpty()) {
+                    val message = param.arg<Any>(0)
+                    trackMessage(message)
+                }
+            }
+        // Hook conversation updates
+        findClass("com.grindrapp.android.persistence.dao.ChatConversationsDao")
+            .hook("upsertConversation", HookStage.AFTER) { param ->
+                if (param.args().isNotEmpty()) {
+                    val conversation = param.arg<Any>(0)
+                    trackConversation(conversation)
+                }
+            }
+    }
+    private fun trackMessage(message: Any) {
+        scope.launch {
+            try {
+                val conversationId = getObjectField(message, "conversationId") as? String ?: return@launch
+                val timestamp = getObjectField(message, "timestamp") as? Long ?: System.currentTimeMillis()
+                
+                val dao = GrindrPlus.database.conversationTrackingDao()
+                
+                // Update message count and timestamp
+                dao.incrementMessageCount(conversationId, timestamp)
+                
+                // Update first message timestamp if this is the first message
+                val existing = dao.getConversation(conversationId)
+                if (existing != null && existing.firstMessageTimestamp == null) {
+                    dao.upsertConversation(
+                        existing.copy(firstMessageTimestamp = timestamp)
+                    )
+                }
+                
+                logi("Tracked message in conversation $conversationId")
+            } catch (e: Exception) {
+                loge("Failed to track message: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+    private fun trackConversation(conversation: Any) {
+        scope.launch {
+            try {
+                val conversationId = getObjectField(conversation, "conversationId") as? String ?: return@launch
+                val name = getObjectField(conversation, "name") as? String
+                val lastMessageTimestamp = getObjectField(conversation, "lastMessageTimestamp") as? Long
+                
+                // Extract profile ID from conversation ID (format: "myId:theirId")
+                val profileId = conversationId.split(":").getOrNull(1) ?: return@launch
+                
+                val dao = GrindrPlus.database.conversationTrackingDao()
+                val existing = dao.getConversation(conversationId)
+                
+                val metadata = ConversationMetadata(
+                    conversationId = conversationId,
+                    profileId = profileId,
+                    displayName = name,
+                    lastMessageTimestamp = lastMessageTimestamp,
+                    firstMessageTimestamp = existing?.firstMessageTimestamp,
+                    messageCount = existing?.messageCount ?: 0,
+                    isFavorite = false, // Can be updated from profile data
+                    isBlocked = false, // Can be updated from blocks
+                    accountPackage = GrindrPlus.packageName
+                )
+                
+                dao.upsertConversation(metadata)
+                logi("Tracked conversation $conversationId")
+                
+                // Record profile sighting
+                GrindrPlus.database.profileAccountMappingDao()
+                    .recordProfileSighting(profileId, GrindrPlus.packageName)
+            } catch (e: Exception) {
+                loge("Failed to track conversation: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+}
+ 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\DatabasePatternMasking.kt --- 
+package com.grindrplus.hooks
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\DisableAnalytics.kt --- 
 package com.grindrplus.hooks
 class DisableAnalytics : Hook(
@@ -5424,6 +6048,86 @@ class EnableUnlimited : Hook(
         }
     }
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\EnhancedAntiDetection.kt --- 
+class EnhancedAntiDetection : Hook(
+    "Enhanced Anti Detection",
+    "Enhanced protection against emulator and environment detection"
+) {
+    private val grindrMiscClass = "mg.n"
+    private val devicePropertiesCollector = "siftscience.android.DevicePropertiesCollector"
+    private val commonUtils = "com.google.firebase.crashlytics.internal.common.CommonUtils"
+    private val osData = "com.google.firebase.crashlytics.internal.model.AutoValue_StaticSessionData_OsData"
+    private val buildClass = "android.os.Build"
+    override fun init() {
+        // Hook the main emulator detection
+        findClass(grindrMiscClass)
+            .hook("O", HookStage.AFTER) { param ->
+                param.setResult(false)
+            }
+        // Firebase Crashlytics checks
+        findClass(commonUtils)
+            .hook("isRooted", HookStage.BEFORE) { param ->
+            .hook("isEmulator", HookStage.BEFORE) { param ->
+            .hook("isAppDebuggable", HookStage.BEFORE) { param ->
+        // Sift Science device properties
+        findClass(devicePropertiesCollector)
+            .hook("existingRWPaths", HookStage.BEFORE) { param ->
+                param.setResult(emptyList<String>())
+            .hook("existingRootFiles", HookStage.BEFORE) { param ->
+            .hook("existingRootPackages", HookStage.BEFORE) { param ->
+            .hook("existingDangerousProperties", HookStage.BEFORE) { param ->
+        // Hook Build properties that might expose emulator
+        try {
+            findClass(buildClass).apply {
+                hook("getRadioVersion", HookStage.AFTER) { param ->
+                    val result = param.getResult() as? String
+                    if (result.isNullOrEmpty() || result == "unknown") {
+                        param.setResult("1.0.0.0")
+                    }
+                }
+        } catch (e: Exception) {
+            // Build.getRadioVersion might not exist on all Android versions
+        }
+        // Hook OS data constructor to hide root status
+        findClass(osData)
+            .hookConstructor(HookStage.BEFORE) { param ->
+                param.setArg(2, false) // isRooted parameter
+        // Additional hardware checks
+        hookHardwareChecks()
+        // File system checks
+        hookFileSystemChecks()
+    }
+    private fun hookHardwareChecks() {
+        // Hook Build.HARDWARE checks
+        val emulatorHardware = setOf(
+            "goldfish", "ranchu", "vbox86", "nox", "ttVM_x86"
+        )
+        // These checks look for emulator-specific hardware identifiers
+            // Some apps check Build.HARDWARE directly via reflection
+            // We can't modify the actual Build fields, but we can hook methods that read them
+            // Silently fail if hooks don't exist
+    private fun hookFileSystemChecks() {
+        // Hook file existence checks for common emulator/root indicators
+        val suspiciousFiles = setOf(
+            "/system/app/Superuser.apk",
+            "/sbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/data/local/xbin/su",
+            "/data/local/bin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/data/local/su",
+            "/su/bin/su",
+            "/system/app/SuperSU",
+            "/system/xbin/daemonsu"
+            findClass("java.io.File")
+                .hook("exists", HookStage.BEFORE) { param ->
+                    val file = param.thisObject() as? java.io.File
+                    if (file != null && suspiciousFiles.contains(file.absolutePath)) {
+                        param.setResult(false)
+            // File hook might be too broad, skip if it causes issues
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\ExpiringMedia.kt --- 
 package com.grindrplus.hooks
 class ExpiringMedia : Hook(
@@ -5642,6 +6346,7 @@ class Favorites : Hook(
             }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\FeatureGranting.kt --- 
 package com.grindrplus.hooks
 class FeatureGranting : Hook(
@@ -6175,6 +6880,8 @@ class LocationSpoofer : Hook(
         GrindrPlus.database.teleportLocationDao().deleteLocation(name)
     }
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\NetworkPatternNormalizer.kt --- 
+class NetworkPatternNormalizer {
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\NotificationAlerts.kt --- 
 package com.grindrplus.hooks
 class NotificationAlerts : Hook(
@@ -6247,6 +6954,130 @@ class PreventChatDeletion : Hook(
         }
     }
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\ProfileChangeTracker.kt --- 
+package com.grindrplus.hooks
+class ProfileChangeTracker : Hook(
+    "Profile Change Tracker",
+    "Tracks all profile changes and photo updates across accounts"
+) {
+    private val scope = CoroutineScope(Dispatchers.IO)
+    private val profileModel = "com.grindrapp.android.persistence.model.Profile"
+    private val profilePhoto = "com.grindrapp.android.persistence.model.ProfilePhoto"
+    override fun init() {
+        // Hook profile updates
+        findClass(profileModel).hook("setDisplayName", HookStage.AFTER) { param ->
+            val profile = param.thisObject()
+            captureProfileSnapshot(profile)
+        }
+        // Hook when profiles are loaded/updated
+        findClass("com.grindrapp.android.persistence.dao.ProfileDao")
+            .hook("upsertProfile", HookStage.AFTER) { param ->
+                if (param.args().isNotEmpty()) {
+                    val profile = param.arg<Any>(0)
+                    captureProfileSnapshot(profile)
+                }
+            }
+        // Hook photo changes
+        findClass("com.grindrapp.android.persistence.dao.ProfilePhotoDao")
+            .hook("upsertProfilePhoto", HookStage.AFTER) { param ->
+                if (param.args().isNotEmpty()) {
+                    val photo = param.arg<Any>(0)
+                    capturePhotoHistory(photo)
+                }
+            }
+    }
+    private fun captureProfileSnapshot(profile: Any) {
+        scope.launch {
+            try {
+                val profileId = getObjectField(profile, "profileId") as? String ?: return@launch
+                val displayName = getObjectField(profile, "displayName") as? String
+                val aboutMe = getObjectField(profile, "aboutMe") as? String
+                val headline = getObjectField(profile, "headline") as? String
+                val age = getObjectField(profile, "age") as? Int
+                val height = getObjectField(profile, "height") as? String
+                val weight = getObjectField(profile, "weight") as? String
+                val bodyType = getObjectField(profile, "bodyType") as? String
+                val ethnicity = getObjectField(profile, "ethnicity") as? String
+                // Convert lists to JSON strings
+                val tribes = try {
+                    val tribesList = getObjectField(profile, "tribes") as? List<*>
+                    org.json.JSONArray(tribesList ?: emptyList<String>()).toString()
+                } catch (e: Exception) { null }
+                val lookingFor = try {
+                    val lookingForList = getObjectField(profile, "lookingFor") as? List<*>
+                    org.json.JSONArray(lookingForList ?: emptyList<String>()).toString()
+                } catch (e: Exception) { null }
+                val snapshot = ProfileSnapshot(
+                    profileId = profileId,
+                    displayName = displayName,
+                    aboutMe = aboutMe,
+                    headline = headline,
+                    age = age,
+                    height = height,
+                    weight = weight,
+                    bodyType = bodyType,
+                    ethnicity = ethnicity,
+                    tribes = tribes,
+                    lookingFor = lookingFor,
+                    accountPackage = GrindrPlus.packageName
+                )
+                // Check if profile has changed before saving
+                val dao = GrindrPlus.database.profileTrackingDao()
+                val latest = dao.getLatestSnapshot(profileId)
+                
+                if (latest == null || hasProfileChanged(latest, snapshot)) {
+                    dao.insertSnapshot(snapshot)
+                    logi("Captured profile snapshot for $profileId")
+                    
+                    // Record profile sighting
+                    GrindrPlus.database.profileAccountMappingDao()
+                        .recordProfileSighting(profileId, GrindrPlus.packageName)
+                }
+            } catch (e: Exception) {
+                loge("Failed to capture profile snapshot: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+    private fun capturePhotoHistory(photo: Any) {
+        scope.launch {
+            try {
+                val profileId = getObjectField(photo, "profileId") as? String ?: return@launch
+                val photoHash = getObjectField(photo, "photoHash") as? String ?: return@launch
+                val photoUrl = getObjectField(photo, "photoUrl") as? String
+                val isPrimary = try {
+                    callMethod(photo, "isPrimary") as? Boolean ?: false
+                } catch (e: Exception) { false }
+                val photoHistory = ProfilePhotoHistory(
+                    profileId = profileId,
+                    photoHash = photoHash,
+                    photoUrl = photoUrl,
+                    localPath = null, // Will be set when saved permanently
+                    isPrimary = isPrimary,
+                    accountPackage = GrindrPlus.packageName
+                )
+                GrindrPlus.database.profileTrackingDao().insertPhotoHistory(photoHistory)
+                logi("Captured photo history for $profileId (hash: $photoHash)")
+            } catch (e: Exception) {
+                loge("Failed to capture photo history: ${e.message}")
+                Logger.writeRaw(e.stackTraceToString())
+            }
+        }
+    }
+    private fun hasProfileChanged(old: ProfileSnapshot, new: ProfileSnapshot): Boolean {
+        return old.displayName != new.displayName ||
+                old.aboutMe != new.aboutMe ||
+                old.headline != new.headline ||
+                old.age != new.age ||
+                old.height != new.height ||
+                old.weight != new.weight ||
+                old.bodyType != new.bodyType ||
+                old.ethnicity != new.ethnicity ||
+                old.tribes != new.tribes ||
+                old.lookingFor != new.lookingFor
+    }
+}
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\ProfileDetails.kt --- 
 package com.grindrplus.hooks
 class ProfileDetails : Hook("Profile details", "Add extra fields and details to profiles") {
@@ -6421,6 +7252,7 @@ class ProfileDetails : Hook("Profile details", "Add extra fields and details to 
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\ProfileViews.kt --- 
 package com.grindrplus.hooks
 class ProfileViews : Hook("Profile views", "Don't let others know you viewed their profile") {
@@ -6447,7 +7279,7 @@ class ProfileViews : Hook("Profile views", "Don't let others know you viewed the
             }
         }
     }
-}
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\QuickBlock.kt --- 
 package com.grindrplus.hooks
 class QuickBlock : Hook(
@@ -6701,6 +7533,7 @@ fun sslUnpinning(param: XC_LoadPackage.LoadPackageParam) {
         }
     )
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\StatusDialog.kt --- 
 package com.grindrplus.hooks
 class StatusDialog : Hook(
@@ -6900,6 +7733,65 @@ class StatusDialog : Hook(
         }
     }
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\StorageDetectionBypass.kt --- 
+class StorageDetectionBypass : Hook(
+    "Storage Detection Bypass",
+    "Prevents detection through storage and I/O pattern analysis"
+        // Hook StatFs to return realistic values
+        // Emulators often have suspiciously round numbers or limited storage
+        hookStatFs()
+        // Hook storage path checks
+        hookStoragePaths()
+        // Hook I/O timing to add realistic variance
+        hookIoTiming()
+        logi("Storage detection bypass initialized")
+    private fun hookStatFs() {
+            findClass("android.os.StatFs").apply {
+                // Hook block count to return realistic values
+                hook("getBlockCountLong", HookStage.AFTER) { param ->
+                    val original = param.getResult() as? Long
+                    if (original != null && isRoundNumber(original)) {
+                        // Add some variance to make it look more realistic
+                        val variance = (original * 0.02).toLong() // 2% variance
+                        param.setResult(original + variance)
+                hook("getAvailableBlocksLong", HookStage.AFTER) { param ->
+                        val variance = (original * 0.03).toLong() // 3% variance
+                        param.setResult(original - variance)
+                hook("getFreeBlocksLong", HookStage.AFTER) { param ->
+                        val variance = (original * 0.025).toLong()
+            Logger.e("Failed to hook StatFs: ${e.message}")
+    private fun hookStoragePaths() {
+            // Hook File path methods that might expose emulator paths
+            val suspiciousPaths = setOf(
+                "/mnt/sdcard",
+                "/mnt/shared",
+                "/data/media/0"
+            )
+                .hook("getAbsolutePath", HookStage.AFTER) { param ->
+                    val path = param.getResult() as? String
+                    if (path != null && path.contains("GrindrPlus_Archive")) {
+                        // Ensure our archive path looks legitimate
+                        // Already using /sdcard/Pictures which is standard
+            Logger.e("Failed to hook storage paths: ${e.message}")
+    private fun hookIoTiming() {
+        // Emulators often have unrealistically fast or slow I/O
+        // We add realistic timing variance
+            findClass("java.io.FileOutputStream")
+                .hook("write", HookStage.BEFORE) { param ->
+                    // Add tiny random delay to make I/O patterns more realistic
+                    if (Config.get("add_io_variance", true) as Boolean) {
+                        val delayNs = (Math.random() * 1000).toLong() // 0-1 microsecond
+                        Thread.sleep(0, delayNs.toInt())
+            // Don't log this as it might be called too frequently
+    private fun isRoundNumber(value: Long): Boolean {
+        // Check if number is suspiciously round (like exactly 8GB, 16GB, etc.)
+        val gb = 1024L * 1024L * 1024L
+        return when {
+            value % (16 * gb) == 0L -> true
+            value % (8 * gb) == 0L -> true
+            value % (4 * gb) == 0L -> true
+            value % (2 * gb) == 0L -> true
+            else -> false
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\TimberLogging.kt --- 
 package com.grindrplus.hooks
 @SuppressLint("LogNotTimber")
@@ -7027,6 +7919,7 @@ class TimberLogging :
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\UnlimitedAlbums.kt --- 
 package com.grindrplus.hooks
 class UnlimitedAlbums : Hook("Unlimited albums", "Allow to be able to view unlimited albums") {
@@ -7524,6 +8417,7 @@ class UnlimitedAlbums : Hook("Unlimited albums", "Allow to be able to view unlim
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\hooks\UnlimitedProfiles.kt --- 
 package com.grindrplus.hooks
 class UnlimitedProfiles : Hook(
@@ -8282,6 +9176,7 @@ fun NavController.navigateItem(item: MainNavItem) {
         restoreState = true
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\PushNotifs.kt --- 
 package com.grindrplus.manager
 class GPlusMessage(
@@ -8354,6 +9249,7 @@ fun sendNotification(
         setPriority(NotificationCompat.PRIORITY_MAX)
     }.also { nm.notify(1, it.build()) }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\blocks\BlockLogTypes.kt --- 
 package com.grindrplus.manager.blocks
 data class BlockEvent(
@@ -8499,27 +9395,23 @@ class Installation(
     private val mapsApiKey: String?
 ) {
     private val keyStoreUtils = KeyStoreUtils(context)
-    private val folder = context.getExternalFilesDir(null) ?: throw IOException("External files directory not available")
+    private val folder = context.getExternalFilesDir(null)
+        ?: throw IOException("External files directory not available")
     private val unzipFolder = File(folder, "splitApks/").also { it.mkdirs() }
     private val outputDir = File(folder, "LSPatchOutput/").also { it.mkdirs() }
     private val modFile = File(folder, "mod-$version.zip")
     private val bundleFile = File(folder, "grindr-$version.zip")
     private val installStep = InstallApkStep(outputDir)
-    // --- UPDATE STEP INSTANTIATION AND ORDER ---
-    // 1. ModXMLStep reads from unzipFolder and writes to outputDir
-    private val modXmlStep = ModXMLStep(unzipFolder, outputDir)
-    // 2. PatchApkStep now reads from outputDir and writes back to outputDir
-    private val patchApkStep = PatchApkStep(outputDir, outputDir, modFile, keyStoreUtils.keyStore, mapsApiKey)
-    // --- END UPDATE ---
+    private val patchApkStep = PatchApkStep(unzipFolder, outputDir, modFile, keyStoreUtils.keyStore, mapsApiKey)
     private val commonSteps = listOf(
+        // Order matters
         CheckStorageSpaceStep(folder),
         DownloadStep(bundleFile, grindrUrl, "Grindr bundle"),
         DownloadStep(modFile, modUrl, "mod"),
         ExtractBundleStep(bundleFile, unzipFolder),
     )
     suspend fun install(print: Print) = performOperation(
-        // --- UPDATE STEP ORDER ---
-        steps = commonSteps + listOf(modXmlStep, patchApkStep, installStep),
+        steps = commonSteps + listOf(patchApkStep, installStep),
         operationName = "install-$version",
         print = print,
     )
@@ -8531,10 +9423,15 @@ class Installation(
         print: Print,
     ) = performOperation(
         steps = commonSteps + listOf(
-            CloneGrindrStep(unzipFolder, packageName, appName, debuggable),
+            CloneGrindrStep(
+                folder = unzipFolder,
+                packageName = packageName,
+                appName = appName,
+                debuggable = debuggable,
+            ),
             SignClonedGrindrApk(keyStoreUtils, unzipFolder),
-            ModXMLStep(unzipFolder, outputDir),
-            PatchApkStep(outputDir, outputDir, modFile, keyStoreUtils.keyStore, mapsApiKey, embedLSpatch),
+            PatchApkStep(unzipFolder, outputDir, modFile,
+                keyStoreUtils.keyStore, mapsApiKey, embedLSpatch),
             installStep
         ),
         operationName = "clone",
@@ -8548,21 +9445,12 @@ class Installation(
         steps = listOf(
             CheckStorageSpaceStep(folder),
             ExtractBundleStep(bundleFile, unzipFolder),
-            ModXMLStep(unzipFolder, outputDir),
-            // Add manual signing step with your keystore details
-            ManualSigningStep(
-                outputDir,
-                keyStoreUtils.keyStore,
-                "Alias",      // Replace with your actual alias
-                "password"    // Replace with your actual password
-            ),
-            PatchApkStep(outputDir, outputDir, modFile, keyStoreUtils.keyStore, mapsApiKey),
-            installStep
+            PatchApkStep(unzipFolder, outputDir, modFile, keyStoreUtils.keyStore, mapsApiKey),
+            InstallApkStep(outputDir)
         ),
         operationName = "custom_install",
         print = print
     )
-    // ... (rest of the Installation.kt file is unchanged) ...
     suspend fun performOperation(
         steps: List<Step>,
         operationName: String,
@@ -8588,8 +9476,12 @@ class Installation(
             onSuccess()
         }
     } catch (e: CancellationException) {
-        print("$operationName was cancelled"); showToast("$operationName was cancelled")
-        plausible?.event("${operationName}_cancelled", "app://grindrplus/${operationName}_cancelled")
+        print("$operationName was cancelled")
+        showToast("$operationName was cancelled")
+        plausible?.event(
+            "${operationName}_cancelled",
+            "app://grindrplus/${operationName}_cancelled"
+        )
         throw e
     } catch (e: Exception) {
         val errorMsg = "$operationName failed: ${e.localizedMessage}"
@@ -8598,7 +9490,10 @@ class Installation(
             "app://grindrplus/${operationName}_failure",
             props = mapOf("error" to e.message)
         )
-        print(errorMsg); showToast(errorMsg); cleanupOnFailure(); throw e
+        print(errorMsg)
+        showToast(errorMsg)
+        cleanupOnFailure()
+        throw e
     }
     private fun cleanupOnFailure() {
         try {
@@ -8606,14 +9501,15 @@ class Installation(
             outputDir.listFiles()?.forEach { it.delete() }
             if (bundleFile.exists() && bundleFile.length() <= 100) bundleFile.delete()
             if (modFile.exists() && modFile.length() <= 100) modFile.delete()
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
     }
     fun showToast(message: String) {
         CoroutineScope(Dispatchers.Main).launch {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
-}
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\installation\Step.kt --- 
 package com.grindrplus.manager.installation
 interface Step {
@@ -8775,76 +9671,44 @@ class ExtractBundleStep(
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\installation\steps\InstallApkStep.kt --- 
 package com.grindrplus.manager.installation.steps
+// Last
 class InstallApkStep(
     private val outputDir: File
 ) : BaseStep() {
     override val name = "Installing Grindr APK"
-    private companion object {
-        const val TAG = "InstallApkStep"
-    }
     override suspend fun doExecute(context: Context, print: Print) {
-        print("Starting APK installation process...")
         val patchedFiles = outputDir.listFiles()?.toList() ?: emptyList()
         if (patchedFiles.isEmpty()) {
-            throw IOException("No patched APK files found for installation in ${outputDir.absolutePath}")
-        }
-        print("Found ${patchedFiles.size} files in output directory:")
-        patchedFiles.forEach { file ->
-            print("  - ${file.name} (${file.length()} bytes)")
+            throw IOException("No patched APK files found for installation")
         }
         val filteredApks = patchedFiles.filter {
             it.name.endsWith(".apk") && it.exists() && it.length() > 0
         }
         if (filteredApks.isEmpty()) {
-            throw IOException("No valid APK files found for installation. Checked ${patchedFiles.size} files.")
+            throw IOException("No valid APK files found for installation")
         }
         print("Starting installation of ${filteredApks.size} APK files")
         filteredApks.forEachIndexed { index, file ->
-            print("  Installing (${index + 1}/${filteredApks.size}): ${file.name} (${file.length()} bytes)")
-            // Verify each APK before installation
-            if (!file.exists()) {
-                throw IOException("APK file disappeared: ${file.absolutePath}")
-            }
-            if (file.length() == 0L) {
-                throw IOException("APK file is empty: ${file.absolutePath}")
-            }
+            print("  Installing (${index + 1}/${filteredApks.size}): ${file.name}")
         }
         print("Launching installer...")
-        var installationSuccess = false
-        var installationError: String? = null
         val success = SessionInstaller().installApks(
             context,
             filteredApks,
             false,
-            log = { message ->
-                print("INSTALLER: $message")
-                Log.i(TAG, "Installer: $message")
-            },
-            callback = { success, message ->
-                installationSuccess = success
-                installationError = message
+            log = print,
+            callback = { success, string ->
                 if (success) {
-                    print("✅ APK installation completed successfully")
-                    Log.i(TAG, "Installation completed successfully")
+                    print("APK installation completed successfully")
                 } else {
-                    print("❌ APK installation failed: $message")
-                    Log.e(TAG, "Installation failed: $message")
+                    print("APK installation failed: $string")
                 }
             }
         )
         if (!success) {
-            val errorMsg = installationError ?: "Unknown installation error"
-            throw IOException("Installation failed: $errorMsg")
+            throw IOException("Installation failed")
         }
-        if (!installationSuccess) {
-            val errorMsg = installationError ?: "Installation callback reported failure"
-            throw IOException("Installation failed: $errorMsg")
-        }
-        print("🎉 APK installation completed successfully!")
-        print("Installed ${filteredApks.size} APK files:")
-        filteredApks.forEach { file ->
-            print("  ✅ ${file.name}")
-        }
+        print("APK installation completed successfully")
     }
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\installation\steps\ManualSigningStep.kt --- 
@@ -9198,40 +10062,62 @@ tailrec fun numberToWords(num: Int, result: String = ""): String {
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\installation\steps\PatchApkStep.kt --- 
 package com.grindrplus.manager.installation.steps
+// 5th
 class PatchApkStep(
-    private val inputDir: File,
+    private val unzipFolder: File,
     private val outputDir: File,
     private val modFile: File,
     private val keyStore: File,
     private val customMapsApiKey: String?,
     private val embedLSPatch: Boolean = true
 ) : BaseStep() {
-    override val name = "Patching Grindr APK (Maps API Key & LSPatch)"
+    override val name = "Patching Grindr APK"
     private companion object {
         const val MAPS_API_KEY_NAME = "com.google.android.geo.API_KEY"
-        const val TAG = "PatchApkStep"
+        const val WRITE_PERMISSION = "android.permission.WRITE_EXTERNAL_STORAGE"
+        const val MANAGE_PERMISSION = "android.permission.MANAGE_EXTERNAL_STORAGE"
     }
     override suspend fun doExecute(context: Context, print: Print) {
-        val apkFiles = inputDir.listFiles()?.filter { it.name.endsWith(".apk") && it.exists() && it.length() > 0 }
+        print("Cleaning output directory...")
+        outputDir.listFiles()?.forEach { it.delete() }
+        val apkFiles = unzipFolder.listFiles()?.filter { it.name.endsWith(".apk") && it.exists() && it.length() > 0 }
         if (apkFiles.isNullOrEmpty()) {
-            throw IOException("No APK files found in input directory to patch.")
-        }
-        print("Found ${apkFiles.size} APK files: ${apkFiles.joinToString { it.name }}")
-        // Step 1: Comprehensive APK diagnostics before any processing
-        print("=== APK DIAGNOSTICS ===")
-        apkFiles.forEach { apkFile ->
-            diagnoseApkFile(apkFile, context, print)
+            throw IOException("No valid APK files found to patch")
         }
         try {
             if (customMapsApiKey != null) {
                 print("Attempting to apply custom Maps API key...")
-                val baseApk = apkFiles.find { it.name == "base.apk" || it.name.startsWith("base.apk-") } ?: apkFiles.first()
+                val baseApk = apkFiles.find {
+                    it.name == "base.apk" || it.name.startsWith("base.apk-")
+                } ?: apkFiles.first()
                 print("Using ${baseApk.name} for Maps API key modification")
                 val apkModule = ApkModule.loadApkFile(baseApk)
-                val applicationElement = apkModule.androidManifest.applicationElement
-                val metaElements = applicationElement.getElements { it.name == "meta-data" }
-                var foundMapsKey = false
-                while (metaElements.hasNext() && !foundMapsKey) {
+                // 2. Get the AndroidManifestBlock object
+                val manifest = apkModule.getAndroidManifest()
+                // 3. Find the specific <uses-permission> element to remove
+                val permissionNameToRemove = "android.permission.WRITE_EXTERNAL_STORAGE"
+                val permissionToRemove = manifest.getUsesPermission(permissionNameToRemove)
+                // 4. If the element exists, remove it
+                if (permissionToRemove != null) {
+                    // Get the parent element (<manifest>) and remove the child
+                    val manifestElement = manifest.getManifestElement()
+                    manifestElement.remove(permissionToRemove)
+                    println("Removed permission: $WRITE_PERMISSION")
+                } else {
+                    println("Permission not found: $WRITE_PERMISSION")
+                }
+                // 5. Add the two new <uses-permission> elements
+                val newPermission1 = "android.permission.WRITE_EXTERNAL_STORAGE"
+                val newPermission2 = "android.permission.MANAGE_EXTERNAL_STORAGE"
+                manifest.addUsesPermission(WRITE_PERMISSION)
+                manifest.addUsesPermission(MANAGE_PERMISSION)
+                println("Added permission: $WRITE_PERMISSION")
+                println("Added permission: $MANAGE_PERMISSION")
+                val metaElements = apkModule.androidManifest.applicationElement.getElements { element ->
+                    element.name == "meta-data"
+                }
+                var found = false
+                while (metaElements.hasNext() && !found) {
                     val element = metaElements.next()
                     val nameAttr = element.searchAttributeByName("name")
                     if (nameAttr != null && nameAttr.valueString == MAPS_API_KEY_NAME) {
@@ -9239,210 +10125,77 @@ class PatchApkStep(
                         if (valueAttr != null) {
                             print("Found Maps API key element, replacing with custom key")
                             valueAttr.setValueAsString(StyleDocument.parseStyledString(customMapsApiKey))
-                            foundMapsKey = true
+                            found = true
                         }
                     }
                 }
-                if (foundMapsKey) {
-                    print("Successfully applied Maps API key replacement. Saving APK...")
+                if (found) {
+                    print("Successfully replaced Maps API key, saving APK")
                     apkModule.writeApk(baseApk)
-                    print("APK saved. Running post-modification diagnostics...")
-                    diagnoseApkFile(baseApk, context, print)
                 } else {
-                    print("Maps API key element not found, skipping save.")
+                    print("Maps API key element not found in manifest, skipping replacement")
                 }
             }
         } catch (e: Exception) {
-            print("Error during Maps API key patching: ${e.message}")
-            throw e
+            print("Error applying Maps API key: ${e.message}")
         }
         if (!embedLSPatch) {
-            print("Skipping LSPatch. APKs are ready in output directory.")
+            print("Skipping LSPatch as embedLSPatch is disabled")
+            apkFiles.forEach { apkFile ->
+                val outputFile = File(outputDir, apkFile.name)
+                apkFile.copyTo(outputFile, overwrite = true)
+                print("Copied ${apkFile.name} to output directory")
+            }
+            val copiedFiles = outputDir.listFiles()
+            if (copiedFiles.isNullOrEmpty()) {
+                throw IOException("Copying APKs failed - no output files generated")
+            }
+            print("Copying completed successfully")
+            print("Copied ${copiedFiles.size} files")
+            copiedFiles.forEachIndexed { index, file ->
+                print("  ${index + 1}. ${file.name} (${file.length() / 1024}KB)")
+            }
             return
         }
-        print("=== STARTING LSPATCH PROCESS ===")
-        // Verify mod file exists and is valid
-        if (!modFile.exists() || !modFile.canRead()) {
-            throw IOException("Mod file not found or not readable: ${modFile.absolutePath}")
-        }
-        print("Mod file verified: ${modFile.name} (${modFile.length()} bytes)")
-        // Verify keystore exists
-        if (!keyStore.exists() || !keyStore.canRead()) {
-            throw IOException("Keystore not found or not readable: ${keyStore.absolutePath}")
-        }
-        print("Keystore verified: ${keyStore.name}")
-        // LSPatch needs a clean output directory
-        val lspatchOutputDir = File(outputDir, "lspatch_temp").also {
-            it.deleteRecursively()
-            it.mkdirs()
-        }
+        print("Starting LSPatch process with ${apkFiles.size} APK files")
         val apkFilePaths = apkFiles.map { it.absolutePath }.toTypedArray()
         val logger = object : Logger() {
             override fun d(message: String?) {
-                message?.let {
-                    print("LSPATCH DEBUG: $it")
-                    Log.d(TAG, "LSPATCH: $it")
-                }
+                message?.let { print("DEBUG: $it") }
             }
             override fun i(message: String?) {
-                message?.let {
-                    print("LSPATCH INFO: $it")
-                    Log.i(TAG, "LSPATCH: $it")
-                }
+                message?.let { print("INFO: $it") }
             }
             override fun e(message: String?) {
-                message?.let {
-                    print("LSPATCH ERROR: $it")
-                    Log.e(TAG, "LSPATCH: $it")
-                }
+                message?.let { print("ERROR: $it") }
             }
         }
-        print("LSPatch command parameters:")
-        print("  Input APKs: ${apkFilePaths.joinToString()}")
-        print("  Output dir: ${lspatchOutputDir.absolutePath}")
-        print("  Mod file: ${modFile.absolutePath}")
-        print("  Keystore: ${keyStore.absolutePath}")
-        try {
-            withContext(Dispatchers.IO) {
-                print("Executing LSPatch in background thread...")
-                LSPatch(
-                    logger,
-                    *apkFilePaths,
-                    "-o", lspatchOutputDir.absolutePath,
-                    "-l", "2", "-f", "-v",
-                    "-m", modFile.absolutePath,
-                    "-k", keyStore.absolutePath, "password", "alias", "password"
-                ).doCommandLine()
-            }
-        } catch (e: Exception) {
-            print("=== LSPATCH FAILED ===")
-            print("Exception type: ${e.javaClass.simpleName}")
-            print("Exception message: ${e.message}")
-            // Enhanced error diagnostics
-            when {
-                e.message?.contains("signature", ignoreCase = true) == true -> {
-                    print("SIGNATURE-RELATED ERROR DETECTED")
-                    print("This usually means LSPatch cannot extract or verify the APK signature")
-                    diagnoseSignatureIssues(apkFiles, context, print)
-                }
-                e.message?.contains("original signature failed") == true -> {
-                    print("ORIGINAL SIGNATURE EXTRACTION FAILED")
-                    print("LSPatch cannot read the signature from one of the APK files")
-                    diagnoseSignatureIssues(apkFiles, context, print)
-                }
-                else -> {
-                    print("General LSPatch error - see logs for details")
-                }
-            }
-            // Log stack trace for debugging
-            Log.e(TAG, "LSPatch failed", e)
-            e.stackTrace.take(10).forEach { stackElement ->
-                Log.e(TAG, "  at $stackElement")
-            }
-            lspatchOutputDir.deleteRecursively()
-            throw IOException("LSPatch failed: ${e.message}. Check logcat for full stack trace.")
+        print("Using mod file: ${modFile.absolutePath}")
+        print("Using keystore: ${keyStore.absolutePath}")
+        withContext(Dispatchers.IO) {
+            LSPatch(
+                logger,
+                *apkFilePaths,
+                "-o", outputDir.absolutePath,
+                "-l", "2",
+                "-f",
+                "-v",
+                "-m", modFile.absolutePath,
+                "-k", keyStore.absolutePath,
+                "password",
+                "alias",
+                "password"
+            ).doCommandLine()
         }
-        val patchedFiles = lspatchOutputDir.listFiles()
-        if (patchedFiles.isNullOrEmpty() || patchedFiles.none { it.name.endsWith(".apk") }) {
-            throw IOException("LSPatch failed - no output APK files generated in ${lspatchOutputDir.absolutePath}")
+        val patchedFiles = outputDir.listFiles()
+        if (patchedFiles.isNullOrEmpty()) {
+            throw IOException("Patching failed - no output files generated")
         }
-        print("LSPatch generated ${patchedFiles.size} files: ${patchedFiles.joinToString { it.name }}")
-        // Move patched files from temp dir back to main output dir
-        print("Moving final patched files to output directory...")
-        patchedFiles.forEach { file ->
-            val finalDest = File(outputDir, file.name)
-            if (file.copyTo(finalDest, overwrite = true).exists()) {
-                print("  Success: ${file.name} -> ${finalDest.name}")
-            } else {
-                print("  Warning: Failed to move ${file.name}")
-            }
+        print("Patching completed successfully")
+        print("Generated ${patchedFiles.size} patched files")
+        patchedFiles.forEachIndexed { index, file ->
+            print("  ${index + 1}. ${file.name} (${file.length() / 1024}KB)")
         }
-        lspatchOutputDir.deleteRecursively()
-        print("=== LSPATCH PROCESS COMPLETED SUCCESSFULLY ===")
-        // Final verification of output files
-        val finalApks = outputDir.listFiles()?.filter { it.name.endsWith(".apk") }
-        if (finalApks.isNullOrEmpty()) {
-            throw IOException("No APK files found in output directory after patching")
-        }
-        print("Final APK files: ${finalApks.joinToString { "${it.name} (${it.length()} bytes)" }}")
-    }
-    private fun diagnoseApkFile(apkFile: File, context: Context, print: Print) {
-        print("Diagnosing APK: ${apkFile.name}")
-        print("  File exists: ${apkFile.exists()}")
-        print("  File size: ${apkFile.length()} bytes")
-        print("  File readable: ${apkFile.canRead()}")
-        print("  File writable: ${apkFile.canWrite()}")
-        // Check APK structure
-        try {
-            ZipFile(apkFile).use { zip ->
-                val entries = zip.entries().toList()
-                val hasManifest = entries.any { it.name == "AndroidManifest.xml" }
-                val hasClasses = entries.any { it.name.startsWith("classes") && it.name.endsWith(".dex") }
-                val hasResources = entries.any { it.name == "resources.arsc" }
-                print("  APK Structure:")
-                print("    - AndroidManifest.xml: $hasManifest")
-                print("    - classes.dex: $hasClasses")
-                print("    - resources.arsc: $hasResources")
-                print("    - Total entries: ${entries.size}")
-                if (!hasManifest) {
-                    print("  ❌ CRITICAL: Missing AndroidManifest.xml")
-                }
-                if (!hasClasses && !hasResources) {
-                    print("  ⚠️ WARNING: No classes.dex or resources.arsc found")
-                }
-            }
-        } catch (e: Exception) {
-            print("  ❌ ERROR: Failed to analyze APK structure: ${e.message}")
-        }
-        // Check signature - FIXED: Use local variable to avoid smart cast issues
-        try {
-            val packageInfo = context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, PackageManager.GET_SIGNATURES)
-            val signatures = packageInfo?.signatures // Store in local variable
-            if (signatures != null && signatures.isNotEmpty()) {
-                print("  Signatures: ${signatures.size} signature(s) found")
-                signatures.forEachIndexed { index, signature ->
-                    val sigString = signature.toCharsString()
-                    print("    Signature $index: ${sigString.take(20)}... (length: ${sigString.length})")
-                }
-                print("  Package name: ${packageInfo.packageName ?: "Unknown"}")
-            } else {
-                print("  ❌ WARNING: No signatures found in APK")
-            }
-        } catch (e: Exception) {
-            print("  ❌ ERROR: Failed to extract signature: ${e.message}")
-        }
-        print("---")
-    }
-    private fun diagnoseSignatureIssues(apkFiles: List<File>, context: Context, print: Print) {
-        print("=== SIGNATURE DIAGNOSIS ===")
-        print("Testing each APK file individually for signature issues:")
-        apkFiles.forEach { apkFile ->
-            print("Testing: ${apkFile.name}")
-            try {
-                // Try to get detailed package info
-                val packageInfo = context.packageManager.getPackageArchiveInfo(
-                    apkFile.absolutePath,
-                    PackageManager.GET_SIGNATURES or PackageManager.GET_META_DATA
-                )
-                if (packageInfo == null) {
-                    print("  ❌ FAILED: Could not parse APK at all")
-                    return@forEach
-                }
-                // FIXED: Use local variable to avoid smart cast issues
-                val signatures = packageInfo.signatures
-                if (signatures == null || signatures.isEmpty()) {
-                    print("  ❌ FAILED: No signatures array")
-                } else if (signatures.size == 1 && signatures[0].toCharsString().isEmpty()) {
-                    print("  ❌ FAILED: Empty signature string")
-                } else {
-                    print("  ✅ PASSED: ${signatures.size} valid signature(s)")
-                    print("  Package: ${packageInfo.packageName ?: "Unknown"}")
-                }
-            } catch (e: Exception) {
-                print("  ❌ ERROR: ${e.javaClass.simpleName}: ${e.message}")
-            }
-        }
-        print("=== SIGNATURE DIAGNOSIS COMPLETE ===")
     }
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\installation\steps\SignClonedGrindrApk.kt --- 
@@ -11239,6 +11992,7 @@ class HomeViewModel : ViewModel() {
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\ui\HttpClient.kt --- 
 package com.grindrplus.manager.ui
 // A single, shared client for the entire app to use.
@@ -11251,8 +12005,30 @@ object HttpClient {
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\ui\InstallScreen.kt --- 
 package com.grindrplus.manager.ui
 private val logEntries = mutableStateListOf<LogEntry>()
+private enum class GrindrInstallationStatus {
+    CHECKING,
+    INSTALLED,
+    NOT_INSTALLED,
+    CHECK_FAILED
+}
 @Composable
-fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: InstallScreenViewModel = viewModel()) {
+fun InstallPage(
+    context: Activity,
+    innerPadding: PaddingValues = PaddingValues(0.dp),
+    viewModel: InstallScreenViewModel = viewModel()
+) {
+    InstallPageContent(
+        context = context,
+        innerPadding = innerPadding,
+        viewModel = viewModel
+    )
+}
+@Composable
+private fun InstallPageContent(
+    context: Activity,
+    innerPadding: PaddingValues,
+    viewModel: InstallScreenViewModel
+) {
     // 1. State from ViewModel
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -11261,7 +12037,6 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
     var selectedVersion by remember { mutableStateOf<Data?>(null) }
     var isInstalling by remember { mutableStateOf(false) }
     var isCloning by remember { mutableStateOf(false) }
-    var installationSuccessful by remember { mutableStateOf(false) }
     val isRooted = remember { RootBeer(context).isRooted }
     var showCloneDialog by remember { mutableStateOf(false) }
     var installation by remember { mutableStateOf<Installation?>(null) }
@@ -11272,10 +12047,14 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
     var customVersionName by remember { mutableStateOf("custom") }
     var customBundleUri by remember { mutableStateOf<Uri?>(null) }
     var customModUri by remember { mutableStateOf<Uri?>(null) }
+    var grindrStatus by remember { mutableStateOf(GrindrInstallationStatus.CHECKING) }
     // 3. Side Effects
     val manifestUrl = (Config.get("custom_manifest", DATA_URL) as String).ifBlank { null }
     LaunchedEffect(Unit) {
         viewModel.loadVersionData(manifestUrl.toString())
+    }
+    LaunchedEffect(Unit) {
+        grindrStatus = isGrindrInstalled(context)
     }
     // Creates a background task to auto-select the latest version
     LaunchedEffect(versionData.size) {
@@ -11329,7 +12108,7 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
                 }
                 addLog("Custom installation completed successfully!", LogType.SUCCESS)
                 showToast(context, "Installation complete!")
-                installationSuccessful = true
+                grindrStatus = GrindrInstallationStatus.INSTALLED
             } catch (e: Exception) {
                 handleInstallationError(e, context)
             } finally {
@@ -11455,7 +12234,8 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
             Spacer(modifier = Modifier.height(16.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
                     onClick = {
@@ -11479,12 +12259,6 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
                         }
                     },
                     enabled = !isInstalling && !isCloning,
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.38f
-                        )
-                    ),
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
@@ -11493,58 +12267,115 @@ fun InstallPage(context: Activity, innerPadding: PaddingValues, viewModel: Insta
                     )
                 }
                 Spacer(modifier = Modifier.width(16.dp))
-                Button(
-                    onClick = {
-                        if (installationSuccessful) {
-                            launchGrindr(context)
-                        } else {
-                            if (useCustomFiles && customBundleUri != null && customModUri != null) {
-                                startCustomInstallation()
-                            } else {
-                                if (selectedVersion == null) {
-                                    showToast(context, "Please select a version first")
-                                    return@Button
+                Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    when (grindrStatus) {
+                        GrindrInstallationStatus.CHECKING -> {
+                            CircularProgressIndicator(modifier = Modifier.height(48.dp)) // Match button height
+                        }
+                        GrindrInstallationStatus.INSTALLED -> {
+                            // New button layout for installed state
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                // Open Grindr button
+                                Button(
+                                    onClick = { launchGrindr(context) },
+                                    enabled = !isInstalling && !isCloning,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Open Grindr", modifier = Modifier.padding(vertical = 8.dp))
                                 }
-                                startInstallation(
-                                    selectedVersion!!,
-                                    onStarted = { isInstalling = true },
-                                    onCompleted = { success ->
-                                        isInstalling = false
-                                        installationSuccessful = success
+                                Spacer(modifier = Modifier.height(8.dp))
+                                // Force Install button
+                                OutlinedButton(
+                                    onClick = {
+                                        if (useCustomFiles && customBundleUri != null && customModUri != null) {
+                                            startCustomInstallation()
+                                        } else {
+                                            if (selectedVersion == null) {
+                                                showToast(context, "Please select a version first")
+                                                return@OutlinedButton
+                                            }
+                                            startInstallation(
+                                                selectedVersion!!,
+                                                onStarted = { isInstalling = true },
+                                                onCompleted = { success ->
+                                                    isInstalling = false
+                                                    if (success) {
+                                                        grindrStatus = GrindrInstallationStatus.INSTALLED
+                                                    }
+                                                },
+                                                context,
+                                                print
+                                            )
+                                        }
                                     },
-                                    context,
-                                    print
-                                )
+                                    enabled = (selectedVersion != null || (useCustomFiles && customBundleUri != null)) && !isInstalling && !isCloning,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(if (isInstalling) "Force Installing..." else "Force Install",
+                                        modifier = Modifier.padding(vertical = 8.dp))
+                                }
                             }
                         }
-                    },
-                    enabled = ((selectedVersion != null || (useCustomFiles && customBundleUri != null && customModUri != null)) ||
-                            installationSuccessful) && !isInstalling && !isCloning,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary,
-                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.12f
-                        ),
-                        disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.38f
-                        )
-                    ),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text = if (isInstalling) {
-                            "Installing..."
-                        } else if (installationSuccessful) {
-                            "Open Grindr"
-                        } else {
-                            "Install"
-                        },
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
+                        GrindrInstallationStatus.NOT_INSTALLED -> {
+                            Button(
+                                onClick = {
+                                    if (useCustomFiles && customBundleUri != null && customModUri != null) {
+                                        startCustomInstallation()
+                                    } else {
+                                        if (selectedVersion == null) {
+                                            showToast(context, "Please select a version first")
+                                            return@Button
+                                        }
+                                        startInstallation(
+                                            selectedVersion!!,
+                                            onStarted = { isInstalling = true },
+                                            onCompleted = { success ->
+                                                isInstalling = false
+                                                if (success) {
+                                                    grindrStatus = GrindrInstallationStatus.INSTALLED
+                                                }
+                                            },
+                                            context,
+                                            print
+                                        )
+                                    }
+                                },
+                                enabled = (selectedVersion != null || (useCustomFiles && customBundleUri != null)) && !isInstalling && !isCloning,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (isInstalling) "Installing..." else "Install", modifier = Modifier.padding(vertical = 8.dp))
+                            }
+                        }
+                        GrindrInstallationStatus.CHECK_FAILED -> {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Check failed", style = MaterialTheme.typography.bodySmall)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row {
+                                    Button(
+                                        onClick = { launchGrindr(context) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp)
+                                    ) {
+                                        Text("Relaunch", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = { grindrStatus = isGrindrInstalled(context) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp)
+                                    ) {
+                                        Text("Recheck", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            if (isGrindrInstalled(context)) {
+            if (grindrStatus == GrindrInstallationStatus.INSTALLED) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Button(
                     onClick = { showCloneDialog = true },
@@ -11621,6 +12452,164 @@ fun ErrorScreen(errorMessage: String, onRetry: () -> Unit) {
         ) {
             Text("Retry")
         }
+    }
+}
+@Preview(showBackground = true, name = "Button Layout - Installed")
+@Composable
+fun ButtonLayoutPreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Main action buttons
+            Button(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Open Grindr")
+            }
+            OutlinedButton(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Force Install")
+            }
+            // Clone button with icon
+            Button(
+                onClick = { },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ContentCopy,
+                    contentDescription = "Clone",
+                    modifier = Modifier.padding(end = 8.dp)
+                )
+                Text("Clone Grindr")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // Clean up button
+            OutlinedButton(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Clean Up")
+            }
+        }
+    }
+}
+@Preview(showBackground = true, name = "Button Layout - Not Installed")
+@Composable
+fun ButtonLayoutNotInstalledPreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Single install button for not installed state
+            Button(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Install")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            OutlinedButton(
+                onClick = { },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Clean Up")
+            }
+        }
+    }
+}
+@Preview(showBackground = true, name = "Main UI - Installed")
+@Composable
+fun InstallPageInstalledPreview() {
+    MaterialTheme {
+        Column(
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxSize()
+        ) {
+            // Same banner and version selector as above
+            MessageBanner(
+                text = "• Don't close the app while installation is in progress\n• Grindr WILL crash on first launch after installation",
+                isVisible = true,
+                isPulsating = false,
+                modifier = Modifier.fillMaxWidth(),
+                type = BannerType.WARNING,
+                onDismiss = { }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            VersionSelector(
+                versions = listOf(Data("v9.10.0", "", "")),
+                selectedVersion = Data("v9.10.0", "", ""),
+                onVersionSelected = { },
+                isEnabled = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Console output would appear here")
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            // Different button layout for installed state
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Open Grindr")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Force Install")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(
+                    onClick = { },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Clone Grindr")
+                }
+            }
+        }
+    }
+}
+// Preview ViewModel for testing
+class PreviewInstallScreenViewModel : InstallScreenViewModel() {
+    init {
+        val isLoading = mutableStateOf(false)
+        val errorMessage = mutableStateOf<String?>(null)
+        val versionData = listOf(
+            Data("v9.10.0", "https://example.com/grindr.apk", "https://example.com/mod.apk"),
+            Data("v9.9.0", "https://example.com/grindr-old.apk", "https://example.com/mod-old.apk")
+        )
+    }
+    override fun loadVersionData(manifestUrl: String) {
+        // No-op for preview
     }
 }
 private fun startInstallation(
@@ -11711,12 +12700,15 @@ private fun launchGrindr(context: Context) {
         showToast(context, "Error launching Grindr: ${e.localizedMessage}")
     }
 }
-private fun isGrindrInstalled(context: Context): Boolean {
+private fun isGrindrInstalled(context: Context): GrindrInstallationStatus {
     return try {
         context.packageManager.getPackageInfo(GRINDR_PACKAGE_NAME, 0)
-        true
+        GrindrInstallationStatus.INSTALLED
     } catch (_: PackageManager.NameNotFoundException) {
-        false
+        GrindrInstallationStatus.NOT_INSTALLED
+    } catch (e: Exception) {
+        // This should catch other exceptions e.g. app crash
+        GrindrInstallationStatus.CHECK_FAILED
     }
 }
 data class Data(
@@ -11726,14 +12718,14 @@ data class Data(
 ) 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\ui\InstallScreenViewModel.kt --- 
 package com.grindrplus.manager.ui
-class InstallScreenViewModel : ViewModel() {
+open class InstallScreenViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(true)
     val isLoading = _isLoading.asStateFlow()
     private val _loadingText = MutableStateFlow("Loading available versions...")
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
     val versionData = mutableStateListOf<Data>()
-    fun loadVersionData(manifestUrl: String) {
+    open fun loadVersionData(manifestUrl: String) {
         _isLoading.value = true
         _errorMessage.value = null
         viewModelScope.launch {
@@ -12323,6 +13315,7 @@ fun MessageBubble(message: com.grindrplus.manager.GPlusMessage) {
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\ui\SettingsScreen.kt --- 
 package com.grindrplus.manager.ui
 @OptIn(ExperimentalMaterial3Api::class)
@@ -12428,18 +13421,18 @@ fun SettingsScreen(
                                 onClick = {
                                     expanded = false
                                     try {
-                                        FileOperationHandler.importFile(
+                                        FileOperationHandler.
                                             arrayOf("application/json")
                                         ) {
                                             Config.writeRemoteConfig(JSONObject(it))
                                             viewModel.loadSettings()
                                             scope.launch {
-                                                snackbarHostState.showSnackbar("Settings imported successfully")
+                                                snackbarHostState.showSnackbar("Settings 
                                             }
                                         }
                                     } catch (e: Exception) {
                                         scope.launch {
-                                            snackbarHostState.showSnackbar("Failed to import settings: ${e.message}")
+                                            snackbarHostState.showSnackbar("Failed to 
                                         }
                                     }
                                 }
@@ -14086,6 +15079,7 @@ fun VersionSelector(
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\ui\theme\Theme.kt --- 
 package com.grindrplus.manager.ui.theme
 val GrindrYellow = Color(0xFFFFCC00)
@@ -14230,6 +15224,7 @@ val Typography = Typography(
         letterSpacing = 0.1.sp
     )
 )
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\utils\AppCloneUtils.kt --- 
 package com.grindrplus.manager.utils
 object AppCloneUtils {
@@ -14590,12 +15585,12 @@ object ErrorHandler {
 package com.grindrplus.manager.utils
 object FileOperationHandler {
     lateinit var activity: ComponentActivity
-    private lateinit var importFileLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var 
     private lateinit var exportFileLauncher: ActivityResultLauncher<String>
     private lateinit var exportZipLauncher: ActivityResultLauncher<String>
     fun init(activity: ComponentActivity) {
         this.activity = activity
-        this.importFileLauncher =
+        this.
             FileOperationHandler.activity.registerForActivityResult(
                 ActivityResultContracts.OpenDocument()
             ) { uri ->
@@ -14625,9 +15620,9 @@ object FileOperationHandler {
         pendingExportZipFile = zipFile
         exportZipLauncher.launch(filename)
     }
-    fun importFile(mimeTypes: Array<String>, onComplete: (String) -> Unit) {
+    fun 
         onImportComplete = onComplete
-        importFileLauncher.launch(mimeTypes)
+        
     }
     private fun writeToFile(uri: android.net.Uri) {
         try {
@@ -14844,6 +15839,7 @@ fun File.unzip(unzipLocationRoot: File? = null) {
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\manager\utils\KeyStoreUtils.kt --- 
 package com.grindrplus.manager.utils
 class KeyStoreUtils(context: Context) {
@@ -15497,6 +16493,7 @@ object StorageUtils {
 package com.grindrplus.persistence
 @Database(
     entities = [
+        // Existing entities
         AlbumEntity::class,
         AlbumContentEntity::class,
         TeleportLocationEntity::class,
@@ -15507,39 +16504,36 @@ package com.grindrplus.persistence
         ArchivedConversationEntity::class,
         ArchivedChatMessageEntity::class,
         ChatBackup::class,
-        ConversationBackup::class,  // Add this
-        ParticipantBackup::class    // Add this
+        ConversationBackup::class,
+        ParticipantBackup::class,
+        HttpBodyLogEntity::class,
+        // New tracking entities
+        ProfileSnapshot::class,
+        ProfilePhotoHistory::class,
+        ConversationMetadata::class,
+        ProfileAccountMapping::class,
+        PermanentMedia::class
     ],
-    version = 8, // Increment version
+    version = 3, // Increment version
     exportSchema = false
 )
 @TypeConverters(DateConverter::class, ListConverter::class)
 abstract class GPDatabase : RoomDatabase() {
+    // Existing DAOs
     abstract fun albumDao(): AlbumDao
     abstract fun teleportLocationDao(): TeleportLocationDao
     abstract fun savedPhraseDao(): SavedPhraseDao
-    abstract fun chatBackupDao(): ChatBackupDao  // Add this
+    abstract fun chatBackupDao(): ChatBackupDao
+    abstract fun httpBodyLogDao(): HttpBodyLogDao
+    // New tracking DAOs
+    abstract fun profileTrackingDao(): ProfileTrackingDao
+    abstract fun conversationTrackingDao(): ConversationTrackingDao
+    abstract fun profileAccountMappingDao(): ProfileAccountMappingDao
+    abstract fun permanentMediaDao(): PermanentMediaDao
     companion object {
         private const val DATABASE_NAME = "grindrplus.db"
         @Volatile
         private var INSTANCE: GPDatabase? = null
-      /*  fun create(context: Context): GPDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    GPDatabase::class.java,
-                    DATABASE_NAME
-                )
-                    .fallbackToDestructiveMigration() // <-- ADD THIS LINE
-                    .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
-                    .build()
-                INSTANCE = instance
-                instance
-            }
-        }
-    }
-    }
-        */
         fun create(context: Context): GPDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -15547,122 +16541,132 @@ abstract class GPDatabase : RoomDatabase() {
                     GPDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                     .build()
                 INSTANCE = instance
                 instance
             }
         }
-     private val MIGRATION_7_8 = object : Migration(7, 8) {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Create chat_backup table
                 db.execSQL(
                     """
-                    CREATE TABLE IF NOT EXISTS `chat_backup` (
-                        `message_id` TEXT NOT NULL PRIMARY KEY,
-                        `conversation_id` TEXT NOT NULL,
-                        `sender` TEXT NOT NULL,
-                        `body` TEXT NOT NULL,
+                    CREATE TABLE IF NOT EXISTS `http_body_logs` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         `timestamp` INTEGER NOT NULL,
-                        `type` TEXT NOT NULL
-                    )
-                """
-                )
-                // Create conversation_backup table
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `conversation_backup` (
-                        `conversation_id` TEXT NOT NULL PRIMARY KEY,
-                        `name` TEXT NOT NULL DEFAULT '',
-                        `last_message_timestamp` INTEGER NOT NULL,
-                        `unread` INTEGER NOT NULL DEFAULT 0
-                    )
-                """
-                )
-                // Create participant_backup table
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `participant_backup` (
-                        `id` INTEGER PRIMARY KEY AUTOINCREMENT,
-                        `conversation_id` TEXT NOT NULL,
-                        `profile_id` TEXT NOT NULL,
-                        `last_online` INTEGER NOT NULL
-                    )
-                """
-                )
-                // Create indices
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_chat_backup_conversation_id` ON `chat_backup` (`conversation_id`)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_participant_backup_conversation_id` ON `participant_backup` (`conversation_id`)")
-            }
-        }
-        private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `viewed_summary` (
-                        `id` INTEGER NOT NULL PRIMARY KEY,
-                        `viewedCount` INTEGER NOT NULL,
-                        `mostRecentProfileId` TEXT
-                    )
-                """
-                )
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `viewed_profiles` (
-                        `profileId` TEXT NOT NULL PRIMARY KEY,
-                        `viewCount` INTEGER NOT NULL,
-                        `lastTimestamp` INTEGER NOT NULL,
-                        `photoHashes` TEXT NOT NULL
-                    )
-                """
-                )
-                database.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS `media_items` (
-                        `imageHash` TEXT NOT NULL PRIMARY KEY,
-                        `mediaId` INTEGER,
                         `url` TEXT NOT NULL,
-                        `width` INTEGER NOT NULL,
-                        `height` INTEGER NOT NULL,
-                        `takenOnGrindr` INTEGER NOT NULL,
-                        `createdAt` INTEGER NOT NULL,
-                        `imageType` INTEGER NOT NULL,
-                        `tapType` INTEGER NOT NULL,
-                        `localPath` TEXT
+                        `method` TEXT NOT NULL,
+                        `response_body` TEXT
                     )
-                """
+                    """
                 )
             }
         }
-        private val MIGRATION_6_7 = object : Migration(6, 7) {
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
+                // Profile snapshots
                 db.execSQL(
                     """
-                    CREATE TABLE IF NOT EXISTS `archived_conversations` (
-                        `conversationId` TEXT NOT NULL PRIMARY KEY,
-                        `name` TEXT,
-                        `lastMessageTimestamp` INTEGER
+                    CREATE TABLE IF NOT EXISTS `profile_snapshots` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `profileId` TEXT NOT NULL,
+                        `displayName` TEXT,
+                        `aboutMe` TEXT,
+                        `headline` TEXT,
+                        `age` INTEGER,
+                        `height` TEXT,
+                        `weight` TEXT,
+                        `bodyType` TEXT,
+                        `ethnicity` TEXT,
+                        `tribes` TEXT,
+                        `lookingFor` TEXT,
+                        `timestamp` INTEGER NOT NULL,
+                        `accountPackage` TEXT NOT NULL
                     )
-                """
+                    """
                 )
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_archived_conversations_conversationId` ON `archived_conversations` (`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_snapshots_profileId` ON `profile_snapshots` (`profileId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_snapshots_timestamp` ON `profile_snapshots` (`timestamp`)")
+                // Profile photo history
                 db.execSQL(
                     """
-                    CREATE TABLE IF NOT EXISTS `archived_chat_messages` (
-                        `messageId` TEXT NOT NULL PRIMARY KEY,
-                        `conversationId` TEXT NOT NULL,
-                        `senderId` TEXT,
-                        `timestamp` INTEGER,
-                        `body` TEXT
+                    CREATE TABLE IF NOT EXISTS `profile_photos` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `profileId` TEXT NOT NULL,
+                        `photoHash` TEXT NOT NULL,
+                        `photoUrl` TEXT,
+                        `localPath` TEXT,
+                        `isPrimary` INTEGER NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `accountPackage` TEXT NOT NULL
                     )
-                """
+                    """
                 )
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_archived_chat_messages_conversationId` ON `archived_chat_messages` (`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_photos_profileId` ON `profile_photos` (`profileId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_photos_photoHash` ON `profile_photos` (`photoHash`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_photos_timestamp` ON `profile_photos` (`timestamp`)")
+                // Conversation metadata
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `conversation_metadata` (
+                        `conversationId` TEXT PRIMARY KEY NOT NULL,
+                        `profileId` TEXT NOT NULL,
+                        `displayName` TEXT,
+                        `lastMessageTimestamp` INTEGER,
+                        `firstMessageTimestamp` INTEGER,
+                        `messageCount` INTEGER NOT NULL,
+                        `isFavorite` INTEGER NOT NULL,
+                        `isBlocked` INTEGER NOT NULL,
+                        `accountPackage` TEXT NOT NULL
+                    )
+                    """
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversation_metadata_conversationId` ON `conversation_metadata` (`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversation_metadata_profileId` ON `conversation_metadata` (`profileId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_conversation_metadata_accountPackage` ON `conversation_metadata` (`accountPackage`)")
+                // Profile account mapping
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `profile_account_mapping` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `profileId` TEXT NOT NULL,
+                        `accountPackage` TEXT NOT NULL,
+                        `firstSeen` INTEGER NOT NULL,
+                        `lastSeen` INTEGER NOT NULL,
+                        `interactionCount` INTEGER NOT NULL
+                    )
+                    """
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_account_mapping_profileId` ON `profile_account_mapping` (`profileId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_profile_account_mapping_accountPackage` ON `profile_account_mapping` (`accountPackage`)")
+                // Permanent media
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `permanent_media` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `mediaHash` TEXT NOT NULL,
+                        `originalUrl` TEXT,
+                        `localPath` TEXT NOT NULL,
+                        `mediaType` TEXT NOT NULL,
+                        `profileId` TEXT,
+                        `albumId` INTEGER,
+                        `width` INTEGER,
+                        `height` INTEGER,
+                        `fileSize` INTEGER NOT NULL,
+                        `savedTimestamp` INTEGER NOT NULL,
+                        `accountPackage` TEXT NOT NULL
+                    )
+                    """
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_permanent_media_mediaHash` ON `permanent_media` (`mediaHash`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_permanent_media_profileId` ON `permanent_media` (`profileId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_permanent_media_mediaType` ON `permanent_media` (`mediaType`)")
             }
         }
     }
-} 
+}
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\converters\DateConverter.kt --- 
 package com.grindrplus.persistence.converters
 class DateConverter {
@@ -15796,7 +16800,7 @@ package com.grindrplus.persistence.dao
 interface ChatBackupDao {
     // Chat messages
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMessage(chatBackup: ChatBackup)
+    suspend fun insert(chatBackup: ChatBackup)
     @Query("SELECT * FROM chat_backup WHERE conversation_id = :conversationId ORDER BY timestamp ASC")
     suspend fun getMessagesByConversation(conversationId: String): List<ChatBackup>
     // Conversations
@@ -15822,6 +16826,22 @@ interface ChatBackupDao {
     @Query("SELECT COUNT(*) FROM chat_backup WHERE conversation_id = :conversationId")
     suspend fun getMessageCount(conversationId: String): Int
 }*/
+ 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\dao\HttpBodyLogDao.kt --- 
+package com.grindrplus.persistence.dao
+@Dao
+interface HttpBodyLogDao {
+    @Insert
+    suspend fun insert(log: HttpBodyLogEntity)
+    @Query("SELECT * FROM http_body_logs ORDER BY timestamp DESC")
+    suspend fun getAll(): List<HttpBodyLogEntity>
+    @Query("DELETE FROM http_body_logs")
+    suspend fun clearAll()
+    @Query("SELECT COUNT(*) FROM http_body_logs")
+    suspend fun getCount(): Long
+    @Query("DELETE FROM http_body_logs WHERE id IN (SELECT id FROM http_body_logs ORDER BY timestamp ASC LIMIT :count)")
+    suspend fun deleteOldest(count: Int)
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\dao\MediaItemDao.kt --- 
 package com.grindrplus.persistence.dao
 @Dao
@@ -15928,6 +16948,154 @@ interface TeleportLocationDao {
     @Query("DELETE FROM TeleportLocationEntity WHERE name = :name")
     suspend fun deleteLocation(name: String): Int
 }
+ 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\dao\tracking_daos.kt --- 
+package com.grindrplus.persistence.dao
+@Dao
+interface ProfileTrackingDao {
+    /**
+     * Insert a profile snapshot
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSnapshot(snapshot: ProfileSnapshot): Long
+    /**
+     * Get all snapshots for a profile
+     */
+    @Query("SELECT * FROM profile_snapshots WHERE profileId = :profileId ORDER BY timestamp DESC")
+    suspend fun getProfileHistory(profileId: String): List<ProfileSnapshot>
+    /**
+     * Get latest snapshot for a profile
+     */
+    @Query("SELECT * FROM profile_snapshots WHERE profileId = :profileId ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestSnapshot(profileId: String): ProfileSnapshot?
+    /**
+     * Detect profile changes between snapshots
+     */
+    @Query("""
+        SELECT * FROM profile_snapshots 
+        WHERE profileId = :profileId 
+        AND timestamp > :sinceTimestamp 
+        ORDER BY timestamp ASC
+    """)
+    suspend fun getChanges(profileId: String, sinceTimestamp: Long): List<ProfileSnapshot>
+    /**
+     * Insert photo history entry
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPhotoHistory(photo: ProfilePhotoHistory): Long
+    /**
+     * Get photo history for a profile
+     */
+    @Query("SELECT * FROM profile_photos WHERE profileId = :profileId ORDER BY timestamp DESC")
+    suspend fun getPhotoHistory(profileId: String): List<ProfilePhotoHistory>
+    /**
+     * Find profiles that have used a specific photo
+     */
+    @Query("SELECT DISTINCT profileId FROM profile_photos WHERE photoHash = :photoHash")
+    suspend fun findProfilesWithPhoto(photoHash: String): List<String>
+}
+@Dao
+interface ConversationTrackingDao {
+    /**
+     * Upsert conversation metadata
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertConversation(conversation: ConversationMetadata)
+    /**
+     * Get all conversations for an account
+     */
+    @Query("SELECT * FROM conversation_metadata WHERE accountPackage = :accountPackage ORDER BY lastMessageTimestamp DESC")
+    suspend fun getConversations(accountPackage: String): List<ConversationMetadata>
+    /**
+     * Get conversation by ID
+     */
+    @Query("SELECT * FROM conversation_metadata WHERE conversationId = :conversationId")
+    suspend fun getConversation(conversationId: String): ConversationMetadata?
+    /**
+     * Update message count
+     */
+    @Query("UPDATE conversation_metadata SET messageCount = messageCount + 1, lastMessageTimestamp = :timestamp WHERE conversationId = :conversationId")
+    suspend fun incrementMessageCount(conversationId: String, timestamp: Long)
+    /**
+     * Get all conversations with a specific profile across all accounts
+     */
+    @Query("SELECT * FROM conversation_metadata WHERE profileId = :profileId")
+    suspend fun getConversationsForProfile(profileId: String): List<ConversationMetadata>
+}
+@Dao
+interface ProfileAccountMappingDao {
+    /**
+     * Record that an account has seen a profile
+     */
+    @Transaction
+    suspend fun recordProfileSighting(profileId: String, accountPackage: String) {
+        val existing = getMapping(profileId, accountPackage)
+        if (existing != null) {
+            updateLastSeen(profileId, accountPackage, System.currentTimeMillis())
+            incrementInteractionCount(profileId, accountPackage)
+        } else {
+            insertMapping(ProfileAccountMapping(
+                profileId = profileId,
+                accountPackage = accountPackage,
+                interactionCount = 1
+            ))
+        }
+    }
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMapping(mapping: ProfileAccountMapping)
+    @Query("SELECT * FROM profile_account_mapping WHERE profileId = :profileId AND accountPackage = :accountPackage")
+    suspend fun getMapping(profileId: String, accountPackage: String): ProfileAccountMapping?
+    @Query("UPDATE profile_account_mapping SET lastSeen = :timestamp WHERE profileId = :profileId AND accountPackage = :accountPackage")
+    suspend fun updateLastSeen(profileId: String, accountPackage: String, timestamp: Long)
+    @Query("UPDATE profile_account_mapping SET interactionCount = interactionCount + 1 WHERE profileId = :profileId AND accountPackage = :accountPackage")
+    suspend fun incrementInteractionCount(profileId: String, accountPackage: String)
+    /**
+     * Get all accounts that have seen a profile
+     */
+    @Query("SELECT * FROM profile_account_mapping WHERE profileId = :profileId")
+    suspend fun getAccountsForProfile(profileId: String): List<ProfileAccountMapping>
+    /**
+     * Get all profiles seen by an account
+     */
+    @Query("SELECT * FROM profile_account_mapping WHERE accountPackage = :accountPackage ORDER BY lastSeen DESC")
+    suspend fun getProfilesForAccount(accountPackage: String): List<ProfileAccountMapping>
+}
+@Dao
+interface PermanentMediaDao {
+    /**
+     * Save media permanently
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMedia(media: PermanentMedia): Long
+    /**
+     * Check if media already exists
+     */
+    @Query("SELECT * FROM permanent_media WHERE mediaHash = :hash")
+    suspend fun findByHash(hash: String): PermanentMedia?
+    /**
+     * Get all media for a profile
+     */
+    @Query("SELECT * FROM permanent_media WHERE profileId = :profileId ORDER BY savedTimestamp DESC")
+    suspend fun getProfileMedia(profileId: String): List<PermanentMedia>
+    /**
+     * Get all media for an album
+     */
+    @Query("SELECT * FROM permanent_media WHERE albumId = :albumId ORDER BY savedTimestamp DESC")
+    suspend fun getAlbumMedia(albumId: Long): List<PermanentMedia>
+    /**
+     * Get media by type
+     */
+    @Query("SELECT * FROM permanent_media WHERE mediaType = :type ORDER BY savedTimestamp DESC")
+    suspend fun getMediaByType(type: String): List<PermanentMedia>
+    /**
+     * Get storage statistics
+     */
+    @Query("SELECT SUM(fileSize) FROM permanent_media")
+    suspend fun getTotalStorageUsed(): Long?
+    @Query("SELECT COUNT(*) FROM permanent_media")
+    suspend fun getTotalMediaCount(): Int
+}
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\dao\ViewedProfileDao.kt --- 
 package com.grindrplus.persistence.dao
 @Dao
@@ -16190,6 +17358,7 @@ fun AlbumEntity.toGrindrAlbumWithoutContent(): Any {
         throw e
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\AlbumContentEntity.kt --- 
 package com.grindrplus.persistence.model
 @Entity(
@@ -16257,6 +17426,34 @@ data class ConversationBackup(
     val last_message_timestamp: Long,
     val unread: Int = 0
 )
+ 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\ConversationMetadata.kt --- 
+package com.grindrplus.persistence.model
+@Entity(
+    tableName = "conversation_metadata",
+    indices = [Index("conversationId"), Index("profileId"), Index("accountPackage")]
+)
+data class ConversationMetadata(
+    @PrimaryKey val conversationId: String,
+    val profileId: String,
+    val displayName: String?,
+    val lastMessageTimestamp: Long?,
+    val firstMessageTimestamp: Long?,
+    val messageCount: Int = 0,
+    val isFavorite: Boolean = false,
+    val isBlocked: Boolean = false,
+    val accountPackage: String
+) 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\HttpBodyLogEntity.kt --- 
+package com.grindrplus.persistence.model
+@Entity(tableName = "http_body_logs")
+data class HttpBodyLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val timestamp: Long,
+    val url: String,
+    val method: String,
+    val response_body: String?
+) 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\MediaItem.kt --- 
 package com.grindrplus.persistence.model
 @Entity(tableName = "media_items")
@@ -16282,6 +17479,70 @@ data class ParticipantBackup(
     val profile_id: String,
     val last_online: Long
 ) 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\PermanentMedia.kt --- 
+    tableName = "permanent_media",
+    indices = [Index("mediaHash"), Index("profileId"), Index("mediaType")]
+data class PermanentMedia(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val mediaHash: String, // MD5/SHA of content
+    val originalUrl: String?,
+    val localPath: String, // Permanent storage location
+    val mediaType: String, // "photo", "album", "video"
+    val profileId: String?,
+    val albumId: Long?,
+    val width: Int?,
+    val height: Int?,
+    val fileSize: Long,
+    val savedTimestamp: Long = System.currentTimeMillis(),
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\ProfileAccountMapping.kt --- 
+    tableName = "profile_account_mapping",
+    indices = [Index("profileId"), Index("accountPackage")]
+data class ProfileAccountMapping(
+    val accountPackage: String,
+    val firstSeen: Long = System.currentTimeMillis(),
+    val lastSeen: Long = System.currentTimeMillis(),
+    val interactionCount: Int = 0
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\ProfilePhotoHistory.kt --- 
+    tableName = "profile_photos",
+    indices = [Index("profileId"), Index("photoHash"), Index("timestamp")]
+data class ProfilePhotoHistory(
+    val photoHash: String,
+    val photoUrl: String?,
+    val localPath: String?, // Permanent storage path
+    val isPrimary: Boolean,
+    val timestamp: Long = System.currentTimeMillis(),
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\ProfileSnapshot.kt --- 
+    tableName = "profile_snapshots",
+    indices = [Index("profileId"), Index("timestamp")]
+data class ProfileSnapshot(
+    val aboutMe: String?,
+    val headline: String?,
+    val age: Int?,
+    val height: String?,
+    val weight: String?,
+    val bodyType: String?,
+    val ethnicity: String?,
+    val tribes: String?, // JSON array as string
+    val lookingFor: String?, // JSON array as string
+    val accountPackage: String // Which account saw this
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\profile_tracking.kt --- 
+package com.grindrplus.persistence.model
+/**
+ * Tracks profile snapshots over time
+ */
+/**
+ * Tracks photo changes for profiles
+ */
+/**
+ * Tracks all conversations across accounts
+ */
+/**
+ * Cross-reference table for profiles seen by multiple accounts
+ */
+/**
+ * Permanent media storage tracking
+ */
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\persistence\model\SavedPhraseEntity.kt --- 
 package com.grindrplus.persistence.model
 @Entity
@@ -16369,6 +17630,7 @@ class AlwaysOnline :
         }
     }
 }
+ 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\ui\Utils.kt --- 
 package com.grindrplus.ui
 object Utils {
@@ -16707,12 +17969,22 @@ class HookManager {
     fun registerHooks(init: Boolean = true) {
         runBlocking(Dispatchers.IO) {
             val hookList = listOf(
+                // Critical Anti-Detection (Register First)
+                EnhancedAntiDetection(),
+                StorageDetectionBypass(),
+                DatabasePatternMasking(),
+                NetworkPatternNormalizer(),
+                // Existing Anti-Detection
+                AntiDetection(),
+                // New Tracking Hooks
+                ProfileChangeTracker(),
+                ConversationTracker(),
+                // Existing Hooks (in original order)
                 WebSocketAlive(),
                 TimberLogging(),
                 BanManagement(),
                 FeatureGranting(),
                 EnableUnlimited(),
-                AntiDetection(),
                 StatusDialog(),
                 AntiBlock(),
                 NotificationAlerts(),
@@ -16733,13 +18005,22 @@ class HookManager {
                 ProfileViews(),
                 QuickBlock(),
                 EmptyCalls(),
-                UnlimitedAlbums()
-                        //PreventChatDeletion(),
-                //ChatBackupHook()
+                UnlimitedAlbums(),
+                PreventChatDeletion(),
+                ChatBackupHook()
             )
             hookList.forEach { hook ->
                 Config.initHookSettings(
-                    hook.hookName, hook.hookDesc, true
+                    hook.hookName, hook.hookDesc,
+                    // Enable anti-detection hooks by default
+                    when (hook) {
+                        is EnhancedAntiDetection,
+                        is StorageDetectionBypass,
+                        is DatabasePatternMasking,
+                        is NetworkPatternNormalizer,
+                        is AntiDetection -> true
+                        else -> true
+                    }
                 )
             }
             if (!init) return@runBlocking
@@ -16752,18 +18033,26 @@ class HookManager {
                     Logger.i("Hook ${hook.hookName} is disabled.")
                 }
             }
+            // Initialize stealth mode on first run
+            val firstRun = Config.get("stealth_initialized", false) as Boolean
+            if (!firstRun) {
+                StealthConfig.initializeStealthMode()
+                StealthConfig.applySafetySettings()
+                Config.put("stealth_initialized", true)
+                Logger.s("Stealth mode initialized on first run")
+            }
         }
-    }
-    fun reloadHooks() {
-        runBlocking(Dispatchers.IO) {
-            hooks.values.forEach { hook -> hook.cleanup() }
-            hooks.clear()
+        fun reloadHooks() {
+            runBlocking(Dispatchers.IO) {
+                hooks.values.forEach { hook -> hook.cleanup() }
+                hooks.clear()
+                registerHooks()
+                Logger.s("Reloaded hooks")
+            }
+        }
+        fun init() {
             registerHooks()
-            Logger.s("Reloaded hooks")
         }
-    }
-    fun init() {
-        registerHooks()
     }
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\utils\MediaUtils.kt --- 
@@ -17099,6 +18388,225 @@ object ExpiringPhotoUtils {
     fun getAllSavedImageIds(): List<Long> =
         MediaUtils.getAllSavedMediaIds(MediaUtils.MediaType.IMAGE)
 } 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\utils\media_dehash_util.kt --- 
+package com.grindrplus.utils
+object MediaDehasher {
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
+    // Permanent storage directory (outside app data)
+    private val permanentStorageDir: File by lazy {
+        val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        File(publicDir, "GrindrPlus_Archive").apply {
+            if (!exists()) mkdirs()
+        }
+    }
+    /**
+     * Download and permanently store media with metadata
+     */
+    suspend fun archiveMedia(
+        originalUrl: String,
+        profileId: String? = null,
+        albumId: Long? = null,
+        mediaType: String = "photo"
+    ): Result<PermanentMedia> = withContext(Dispatchers.IO) {
+        runCatching {
+            // Download media
+            val mediaData = downloadMedia(originalUrl)
+            // Calculate hash
+            val hash = calculateHash(mediaData)
+            // Check if already archived
+            val dao = GrindrPlus.database.permanentMediaDao()
+            dao.findByHash(hash)?.let { return@runCatching it }
+            // Determine file extension
+            val extension = getExtensionFromUrl(originalUrl) ?: "jpg"
+            // Create organized directory structure
+            val typeDir = File(permanentStorageDir, mediaType)
+            if (!typeDir.exists()) typeDir.mkdirs()
+            val profileDir = if (profileId != null) {
+                File(typeDir, profileId).apply { if (!exists()) mkdirs() }
+            } else {
+                typeDir
+            }
+            // Save file
+            val filename = "${hash.take(16)}_${System.currentTimeMillis()}.$extension"
+            val file = File(profileDir, filename)
+            FileOutputStream(file).use { it.write(mediaData) }
+            // Get image dimensions if it's a photo
+            var width: Int? = null
+            var height: Int? = null
+            if (mediaType == "photo") {
+                try {
+                    val options = BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    BitmapFactory.decodeFile(file.absolutePath, options)
+                    width = options.outWidth
+                    height = options.outHeight
+                } catch (e: Exception) {
+                    Logger.e("Failed to get image dimensions: ${e.message}")
+                }
+            }
+            // Create database entry
+            val permanentMedia = PermanentMedia(
+                mediaHash = hash,
+                originalUrl = originalUrl,
+                localPath = file.absolutePath,
+                mediaType = mediaType,
+                profileId = profileId,
+                albumId = albumId,
+                width = width,
+                height = height,
+                fileSize = mediaData.size.toLong(),
+                accountPackage = GrindrPlus.packageName
+            )
+            dao.insertMedia(permanentMedia)
+            Logger.i("Archived $mediaType to: ${file.absolutePath}")
+            permanentMedia
+        }
+    }
+    /**
+     * Batch archive all photos from a profile (with stealth mode)
+     */
+    suspend fun archiveProfilePhotos(profileId: String): Result<List<PermanentMedia>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val photos = mutableListOf<PermanentMedia>()
+                val settings = StealthConfig.getArchiveSettings()
+                // Get all photos for this profile from Grindr's database
+                val profilePhotos = com.grindrplus.core.DatabaseHelper.query(
+                    "SELECT photo_url, photo_hash FROM profile_photo WHERE profile_id = ?",
+                    arrayOf(profileId)
+                )
+                // Process in batches to avoid detection
+                profilePhotos.chunked(settings.maxBatchSize).forEach { batch ->
+                    batch.forEach { row ->
+                        val photoUrl = row["photo_url"] as? String
+                        val photoHash = row["photo_hash"] as? String
+                        if (photoUrl != null) {
+                            try {
+                                val archived = archiveMedia(
+                                    originalUrl = photoUrl,
+                                    profileId = profileId,
+                                    mediaType = "photo"
+                                ).getOrNull()
+                                if (archived != null) {
+                                    photos.add(archived)
+                                    // Update photo history with local path
+                                    updatePhotoHistoryPath(profileId, photoHash ?: "", archived.localPath)
+                                }
+                                // Add realistic delay between downloads
+                                if (settings.addRandomDelay) {
+                                    val delay = kotlin.random.Random.nextLong(
+                                        settings.minRandomDelayMs.toLong(),
+                                        settings.maxRandomDelayMs.toLong()
+                                    )
+                                    kotlinx.coroutines.delay(delay)
+                                } else {
+                                    kotlinx.coroutines.delay(settings.delayBetweenDownloads.toLong())
+                                }
+                            } catch (e: Exception) {
+                                Logger.e("Failed to archive photo from $photoUrl: ${e.message}")
+                            }
+                        }
+                    }
+                    // Add delay between batches
+                    if (batch != profilePhotos.last()) {
+                        kotlinx.coroutines.delay(settings.delayBetweenDownloads.toLong() * 2)
+                    }
+                }
+                photos
+            }
+        }
+    /**
+     * Archive an entire album
+     */
+    suspend fun archiveAlbum(albumId: Long): Result<List<PermanentMedia>> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val media = mutableListOf<PermanentMedia>()
+                val album = GrindrPlus.database.albumDao().getAlbum(albumId)
+                val content = GrindrPlus.database.albumDao().getAlbumContent(albumId)
+                content.forEach { contentItem ->
+                    val url = contentItem.url
+                    if (!url.isNullOrEmpty() && url.startsWith("http")) {
+                        try {
+                            val mediaType = if (contentItem.contentType?.contains("video") == true) {
+                                "video"
+                            } else {
+                                "photo"
+                            }
+                            val archived = archiveMedia(
+                                originalUrl = url,
+                                profileId = album?.profileId?.toString(),
+                                albumId = albumId,
+                                mediaType = mediaType
+                            ).getOrNull()
+                            if (archived != null) {
+                                media.add(archived)
+                            }
+                        } catch (e: Exception) {
+                            Logger.e("Failed to archive album content: ${e.message}")
+                        }
+                    }
+                }
+                media
+            }
+        }
+    /**
+     * Get archive statistics
+     */
+    suspend fun getArchiveStats(): ArchiveStats = withContext(Dispatchers.IO) {
+        val dao = GrindrPlus.database.permanentMediaDao()
+        ArchiveStats(
+            totalFiles = dao.getTotalMediaCount(),
+            totalSize = dao.getTotalStorageUsed() ?: 0L,
+            storageLocation = permanentStorageDir.absolutePath
+        )
+    }
+    private suspend fun downloadMedia(url: String): ByteArray {
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .build()
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("Download failed: ${response.code}")
+            }
+            response.body?.bytes() ?: throw Exception("Empty response body")
+        }
+    }
+    private fun calculateHash(data: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hashBytes = digest.digest(data)
+        return hashBytes.joinToString("") { "%02x".format(it) }
+    }
+    private fun getExtensionFromUrl(url: String): String? {
+        return url.substringAfterLast('.', "")
+            .substringBefore('?')
+            .takeIf { it.length in 2..5 }
+    }
+    private suspend fun updatePhotoHistoryPath(profileId: String, photoHash: String, localPath: String) {
+        try {
+            // Update the profile_photos table with the permanent local path
+            com.grindrplus.core.DatabaseHelper.execute(
+                """
+                UPDATE profile_photos 
+                SET localPath = '$localPath' 
+                WHERE profileId = '$profileId' AND photoHash = '$photoHash'
+                """.trimIndent()
+            )
+        } catch (e: Exception) {
+            Logger.e("Failed to update photo history path: ${e.message}")
+        }
+    }
+    data class ArchiveStats(
+        val totalFiles: Int,
+        val totalSize: Long,
+        val storageLocation: String
+    )
+} 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\utils\PCHIP.kt --- 
 package com.grindrplus.utils
 /**
@@ -17328,6 +18836,119 @@ object RetrofitUtils {
                     })
                 }
             }
+    }
+} 
+--- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\utils\StealthConfig.kt --- 
+package com.grindrplus.utils
+object StealthConfig {
+    /**
+     * Initialize stealth mode settings to minimize detection
+     */
+    fun initializeStealthMode() {
+        // Add realistic I/O variance
+        Config.put("add_io_variance", true)
+        // Throttle database operations
+        Config.put("throttle_db_operations", true)
+        // Add network request delays
+        Config.put("realistic_network_timing", true)
+        // Limit archive batch sizes
+        Config.put("max_archive_batch_size", 5)
+        // Add delays between archives
+        Config.put("archive_delay_ms", 2000)
+        // Limit concurrent operations
+        Config.put("max_concurrent_operations", 3)
+        logi("Stealth mode initialized")
+    }
+    /**
+     * Get recommended archive settings
+     */
+    fun getArchiveSettings(): ArchiveSettings {
+        return ArchiveSettings(
+            maxBatchSize = Config.get("max_archive_batch_size", 5) as Int,
+            delayBetweenDownloads = Config.get("archive_delay_ms", 2000) as Int,
+            maxConcurrent = Config.get("max_concurrent_operations", 3) as Int,
+            addRandomDelay = true,
+            minRandomDelayMs = 500,
+            maxRandomDelayMs = 3000
+        )
+    }
+    /**
+     * Check if current environment might trigger detection
+     */
+    fun performSafetyCheck(): SafetyCheckResult {
+        val issues = mutableListOf<String>()
+        val warnings = mutableListOf<String>()
+        // Check database size
+        try {
+            val dbFile = java.io.File("/data/data/com.grindrapp.android/databases/grindrplus.db")
+            if (dbFile.exists()) {
+                val sizeMb = dbFile.length() / (1024.0 * 1024.0)
+                if (sizeMb > 500) {
+                    warnings.add("Database is large (${sizeMb.toInt()}MB). Consider exporting and cleaning old data.")
+                }
+            }
+        } catch (e: Exception) {
+            // Silently fail
+        }
+        // Check storage location
+        val archiveDir = java.io.File("/sdcard/Pictures/GrindrPlus_Archive")
+        if (archiveDir.exists()) {
+            val fileCount = archiveDir.walkTopDown().filter { it.isFile }.count()
+            if (fileCount > 10000) {
+                warnings.add("Archive contains $fileCount files. Consider organizing or moving some.")
+            }
+        }
+        // Check if too many hooks are enabled
+        val enabledHooks = Config.getHooksSettings().filter { it.value.second }.size
+        if (enabledHooks > 35) {
+            warnings.add("Many hooks enabled ($enabledHooks). Consider disabling unused hooks.")
+        }
+        return SafetyCheckResult(
+            isSafe = issues.isEmpty(),
+            issues = issues,
+            warnings = warnings
+        )
+    }
+    /**
+     * Apply recommended safety settings
+     */
+    fun applySafetySettings() {
+        // Disable potentially risky features
+        Config.put("debug_mode", false)
+        // Enable all anti-detection hooks
+        Config.setHookEnabled("Enhanced Anti Detection", true)
+        Config.setHookEnabled("Storage Detection Bypass", true)
+        Config.setHookEnabled("Database Pattern Masking", true)
+        Config.setHookEnabled("Network Pattern Normalizer", true)
+        // Reduce aggressive features
+        Config.put("always_online_interval", 10 * 60 * 1000) // 10 minutes
+        logi("Safety settings applied")
+    }
+    data class ArchiveSettings(
+        val maxBatchSize: Int,
+        val delayBetweenDownloads: Int,
+        val maxConcurrent: Int,
+        val addRandomDelay: Boolean,
+        val minRandomDelayMs: Int,
+        val maxRandomDelayMs: Int
+    )
+    data class SafetyCheckResult(
+        val isSafe: Boolean,
+        val issues: List<String>,
+        val warnings: List<String>
+    ) {
+        fun printReport() {
+            if (isSafe) {
+                logi("✓ Safety check passed")
+            } else {
+                logw("⚠ Safety check found issues:")
+                issues.forEach { logw("  - $it") }
+            }
+            if (warnings.isNotEmpty()) {
+                logw("Warnings:")
+                warnings.forEach { logw("  - $it") }
+            }
+        }
     }
 } 
 --- File: D:\ANDROID\GPlus4.6\app\src\main\java\com\grindrplus\utils\SuspendResultUtils.kt --- 

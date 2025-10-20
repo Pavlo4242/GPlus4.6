@@ -350,7 +350,7 @@ object GrindrPlus {
             Config.put("reset_database", false)
         }
 
-        hookManager.init()
+        hookManager.registerHooks()
         isMainInitialized = true
     }
 

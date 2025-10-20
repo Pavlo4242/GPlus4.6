@@ -20,6 +20,7 @@ class CommandHandler(
         commandModules.add(Database(recipient, sender))
         commandModules.add(MediaManager(recipient, sender))
         commandModules.add(Scammer(recipient, sender))
+        commandModules.add(Archive(recipient, sender))
     }
 
     fun handle(input: String) {
