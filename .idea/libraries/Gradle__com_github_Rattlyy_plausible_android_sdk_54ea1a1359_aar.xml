@@ -1,9 +1,9 @@
 <component name="libraryTable">
   <library name="Gradle: com.github.Rattlyy:plausible-android-sdk:54ea1a1359@aar" external-system-id="GRADLE">
     <CLASSES>
-      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/f4296bf83b1d48bca044d5de4e1d322f/transformed/plausible-android-sdk-54ea1a1359/res" />
-      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/f4296bf83b1d48bca044d5de4e1d322f/transformed/plausible-android-sdk-54ea1a1359/jars/classes.jar!/" />
-      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/f4296bf83b1d48bca044d5de4e1d322f/transformed/plausible-android-sdk-54ea1a1359/AndroidManifest.xml" />
+      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/3f0ee12538e2c983ee9508ad9031da94/transformed/plausible-android-sdk-54ea1a1359/jars/classes.jar!/" />
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/3f0ee12538e2c983ee9508ad9031da94/transformed/plausible-android-sdk-54ea1a1359/res" />
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/3f0ee12538e2c983ee9508ad9031da94/transformed/plausible-android-sdk-54ea1a1359/AndroidManifest.xml" />
     </CLASSES>
     <JAVADOC>
       <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.github.Rattlyy/plausible-android-sdk/54ea1a1359/4b5aa357a89519059167b28cca17bf6a33e2130f/plausible-android-sdk-54ea1a1359-javadoc.jar!/" />

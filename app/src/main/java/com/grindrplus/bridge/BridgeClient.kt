@@ -522,7 +522,12 @@ class BridgeClient(private val context: Context) {
         }
     }
 
-    fun shouldRegenAndroidId(packageName: String): Boolean {
+    fun shouldRegenAndroidId(packageName: String?): Boolean {
+        if (packageName == null) {
+            Logger.w("shouldRegenAndroidId called with null packageName", LogSource.BRIDGE)
+            return false
+        }
+
         if (!isBound.get()) {
             if (connectBlocking(3000)) {
                 Logger.d(

@@ -23,7 +23,6 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
-import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.graphics.toColorInt
 import androidx.core.view.children
@@ -152,14 +151,6 @@ class LocationSpoofer : Hook(
                 coroutineScope.launch {
                     val locations = getLocations()
 
-                    if (locations.isEmpty()) {
-                        GrindrPlus.showToast(
-                            Toast.LENGTH_LONG,
-                            "No saved locations"
-                        )
-                        return@launch
-                    }
-
                     val locationNames = locations.map { it.name }
                     val coordinatesMap = locations.associate { location ->
                         location.name to "${location.latitude}, ${location.longitude}"
@@ -187,6 +178,12 @@ class LocationSpoofer : Hook(
                         textSize = 16f
                         setTypeface(null, Typeface.BOLD)
                         setTextColor(Color.WHITE)
+                    }
+
+                    // Auto-populate with current location if available
+                    val currentLocation = Config.get("current_location", "") as String
+                    if (currentLocation.isNotEmpty()) {
+                        textViewCoordinates.text = currentLocation
                     }
 
                     val spinnerLocations = Spinner(it.context).apply {
@@ -359,10 +356,77 @@ class LocationSpoofer : Hook(
                         }
                     }
 
+                    val buttonSaveCurrent = Button(it.context).apply {
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.MATCH_PARENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            topMargin = 15
+                            marginStart = 140
+                            marginEnd = 140
+                        }
+                        text = "Save Current Location"
+                        background = Utils.createButtonDrawable(Color.parseColor("#607D8B"))
+                        setTextColor(Color.WHITE)
+                        setOnClickListener {
+                            val currentLocation = Config.get("current_location", "") as String
+                            if (currentLocation.isNotEmpty()) {
+                                // Show dialog to enter name
+                                val input = TextView(it.context)
+                                input.hint = "Enter location name"
+                                input.setPadding(32, 16, 32, 16)
+                                input.setTextColor(Color.WHITE)
+                                input.setHintTextColor(Color.GRAY)
+
+                                AlertDialog.Builder(it.context).apply {
+                                    setTitle("Save Current Location")
+                                    setView(input)
+                                    setPositiveButton("Save") { dialog, _ ->
+                                        val name = input.text.toString().trim()
+                                        if (name.isNotEmpty()) {
+                                            coroutineScope.launch {
+                                                try {
+                                                    saveLocation(name, currentLocation)
+                                                    // Refresh the spinner
+                                                    val updatedLocations = getLocations()
+                                                    val updatedLocationNames = updatedLocations.map { it.name }
+                                                    withContext(Dispatchers.Main) {
+                                                        adapter.clear()
+                                                        adapter.addAll(updatedLocationNames)
+                                                        adapter.notifyDataSetChanged()
+                                                        // Auto-select the newly saved location
+                                                        val newIndex = updatedLocationNames.indexOf(name)
+                                                        if (newIndex != -1) {
+                                                            spinnerLocations.setSelection(newIndex)
+                                                        }
+                                                    }
+                                                    GrindrPlus.showToast(Toast.LENGTH_SHORT, "Location '$name' saved")
+                                                } catch (e: IllegalArgumentException) {
+                                                    GrindrPlus.showToast(Toast.LENGTH_LONG, e.message ?: "Invalid location")
+                                                } catch (e: Exception) {
+                                                    GrindrPlus.showToast(Toast.LENGTH_LONG, "Error saving location")
+                                                    Logger.log("Save location error: ${e.message}")
+                                                }
+                                            }
+                                        } else {
+                                            GrindrPlus.showToast(Toast.LENGTH_LONG, "Please enter a name")
+                                        }
+                                        dialog.dismiss()
+                                    }
+                                    setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+                                    show()
+                                }
+                            } else {
+                                GrindrPlus.showToast(Toast.LENGTH_LONG, "No current location available")
+                            }
+                        }
+                    }
+
                     for (view in arrayOf(
                         spinnerLocations,
                         textViewCoordinates, buttonCopy,
-                        buttonSet, buttonOpen, buttonDelete
+                        buttonSet, buttonOpen, buttonDelete,
+                        buttonSaveCurrent
                     )) {
                         locationDialogView.addView(view)
                     }
@@ -377,6 +441,42 @@ class LocationSpoofer : Hook(
             }
 
             chatBottomToolbarLinearLayout.addView(customLocationButton)
+        }
+    }
+
+    private suspend fun saveLocation(name: String, coordinates: String) = withContext(Dispatchers.IO) {
+        val coordParts = coordinates.split(",")
+        if (coordParts.size == 2) {
+            try {
+                val lat = coordParts[0].trim().toDouble()
+                val lon = coordParts[1].trim().toDouble()
+
+                val existingLocation = GrindrPlus.database.teleportLocationDao().getLocations().find { it.name == name }
+
+                if (existingLocation != null) {
+                    // Update existing location
+                    GrindrPlus.database.teleportLocationDao().upsertLocation(
+                        existingLocation.copy(
+                            latitude = lat,
+                            longitude = lon
+                        )
+                    )
+                } else {
+                    // Add new location
+                    val location = TeleportLocationEntity(
+                        name = name,
+                        latitude = lat,
+                        longitude = lon
+                    )
+                    GrindrPlus.database.teleportLocationDao().upsertLocation(location)
+                }
+            } catch (e: NumberFormatException) {
+                throw IllegalArgumentException("Invalid coordinates format")
+            } catch (e: Exception) {
+                throw e
+            }
+        } else {
+            throw IllegalArgumentException("Invalid coordinates format - expected 'lat,lon'")
         }
     }
 

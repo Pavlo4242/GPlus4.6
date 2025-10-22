@@ -57,8 +57,9 @@ object GrindrPlus {
         private set
     lateinit var classLoader: ClassLoader
         private set
-    lateinit var database: GPDatabase
-        private set
+    //lateinit var database: GPDatabase
+    val database: GPDatabase by lazy { GPDatabase.create(context) }
+        //private set
     lateinit var bridgeClient: BridgeClient
         internal set
     lateinit var instanceManager: InstanceManager
@@ -168,7 +169,7 @@ object GrindrPlus {
 
         this.classLoader =
             DexClassLoader(newModule.absolutePath, null, null, context.classLoader)
-        this.database = GPDatabase.create(context)
+      //  this.database = GPDatabase.create(context)
         this.hookManager = HookManager()
         this.instanceManager = InstanceManager(classLoader)
         this.packageName = context.packageName

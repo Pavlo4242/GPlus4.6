@@ -9,8 +9,10 @@ import com.grindrplus.hooks.BanManagement
 import com.grindrplus.hooks.ChatBackupHook
 import com.grindrplus.hooks.ChatIndicators
 import com.grindrplus.hooks.ChatTerminal
-import com.grindrplus.hooks.ConversationTracker
+import com.grindrplus.hooks.ComprehensiveAntiDetection
+//import com.grindrplus.hooks.ConversationTracker
 import com.grindrplus.hooks.DatabasePatternMasking
+import com.grindrplus.hooks.DetectionDiagnostics
 import com.grindrplus.hooks.DisableAnalytics
 import com.grindrplus.hooks.DisableBoosting
 import com.grindrplus.hooks.DisableShuffle
@@ -47,22 +49,18 @@ class HookManager {
     fun registerHooks(init: Boolean = true) {
         runBlocking(Dispatchers.IO) {
             val hookList = listOf(
-                // Critical Anti-Detection (Register First)
-                EnhancedAntiDetection(),
-                StorageDetectionBypass(),
-                DatabasePatternMasking(),
-                NetworkPatternNormalizer(),
-
-                // Existing Anti-Detection
+                // PRIORITY 1: Anti-detection (MUST BE FIRST)
+                ComprehensiveAntiDetection(),
                 AntiDetection(),
 
-                // New Tracking Hooks
-                ProfileChangeTracker(),
-                ConversationTracker(),
+                // PRIORITY 2: Diagnostic (now toggleable!)
+                DetectionDiagnostics(), // UNCOMMENT/ADD THIS LINE
 
-                // Existing Hooks (in original order)
+                // PRIORITY 3: Network and communication
                 WebSocketAlive(),
                 TimberLogging(),
+
+                // Existing Hooks (in original order)
                 BanManagement(),
                 FeatureGranting(),
                 EnableUnlimited(),
@@ -91,11 +89,18 @@ class HookManager {
                 ChatBackupHook()
             )
 
+            // Initialize hook settings in config
             hookList.forEach { hook ->
                 Config.initHookSettings(
                     hook.hookName,
                     hook.hookDesc,
-                    true  // All enabled by default
+                    // Detection Diagnostics should be OFF by default (for production)
+                    // Anti-detection hooks should be ON by default
+                    state = when (hook.hookName) {
+                        "Detection Diagnostics" -> false // OFF by default
+                        "Comprehensive Anti Detection", "Anti Detection" -> true // ON by default
+                        else -> true // Other hooks ON by default
+                    }
                 )
             }
 
@@ -103,12 +108,18 @@ class HookManager {
 
             hooks = hookList.associateBy { it::class }.toMutableMap()
 
-            hooks.values.forEach { hook ->
+            // Initialize hooks in order (critical anti-detection first)
+            hooks.values.forEachIndexed { index, hook ->
                 if (Config.isHookEnabled(hook.hookName)) {
-                    hook.init()
-                    Logger.s("Initialized hook: ${hook.hookName}")
+                    try {
+                        hook.init()
+                        Logger.s("[$index] Initialized hook: ${hook.hookName}")
+                    } catch (e: Exception) {
+                        Logger.e("[$index] Failed to initialize ${hook.hookName}: ${e.message}")
+                        Logger.writeRaw(e.stackTraceToString())
+                    }
                 } else {
-                    Logger.i("Hook ${hook.hookName} is disabled.")
+                    Logger.i("[$index] Hook ${hook.hookName} is disabled.")
                 }
             }
 

@@ -3,6 +3,7 @@ package com.grindrplus.hooks
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import com.grindrplus.core.Config
 import com.grindrplus.core.logd
 import com.grindrplus.core.loge
 import com.grindrplus.core.logi
@@ -21,9 +22,22 @@ class WebSocketAlive : Hook(
     private val webSocketFactory = "Ab.p"
 
     override fun init() {
-        hookSafeDkBackgroundDetection()
+        val safeDkEnabled = Config.get("sub_hook_websocket_safedk", true) as Boolean
+        val autoReconnectEnabled = Config.get("sub_hook_websocket_reconnect", true) as Boolean
+
+        if (safeDkEnabled) {
+            hookSafeDkBackgroundDetection()
+        }
+
+        // Always hook websocket lifecycle
         hookWebSocketLifecycle()
         hookWebSocketFactory()
+
+        // Only set up auto-reconnect if enabled
+        if (!autoReconnectEnabled) {
+            // Disable the auto-reconnect functionality by not scheduling reconnections
+            logi("WebSocket auto-reconnect is disabled")
+        }
     }
 
     private fun hookSafeDkBackgroundDetection() {
@@ -59,7 +73,10 @@ class WebSocketAlive : Hook(
                 param.setResult(null)
             }
 
-            findClass(safeDkLifecycleManager).hook("registerBackgroundForegroundListener", HookStage.AFTER) { param ->
+            findClass(safeDkLifecycleManager).hook(
+                "registerBackgroundForegroundListener",
+                HookStage.AFTER
+            ) { param ->
                 if (param.args().isNotEmpty()) {
                     val listener = param.arg<Any>(0)
                     try {
@@ -183,6 +200,11 @@ class WebSocketAlive : Hook(
     }
 
     private fun scheduleReconnection(webSocketClient: Any, delayMs: Long) {
+        if (!(Config.get("sub_hook_websocket_reconnect", true) as Boolean)) {
+            logd("Auto-reconnect disabled, skipping reconnection")
+            return
+        }
+
         Handler(Looper.getMainLooper()).postDelayed({
             try {
                 val urlField = webSocketClient.javaClass.getDeclaredField("c")

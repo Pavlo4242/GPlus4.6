@@ -82,13 +82,19 @@ class Installation(
         print: Print
     ) = performOperation(
         steps = listOf(
-            CheckStorageSpaceStep(folder),
+            CheckStorageSpaceStep(folder).also {
+                print("Custom installation inputs:")
+                print("  Grindr Bundle: ${bundleFile.absolutePath}")
+                print("  Mod File: ${modFile.absolutePath}")
+            },
+
             ExtractBundleStep(bundleFile, unzipFolder),
             PatchApkStep(unzipFolder, outputDir, modFile, keyStoreUtils.keyStore, mapsApiKey),
             InstallApkStep(outputDir)
         ),
         operationName = "custom_install",
         print = print
+
     )
 
     suspend fun performOperation(

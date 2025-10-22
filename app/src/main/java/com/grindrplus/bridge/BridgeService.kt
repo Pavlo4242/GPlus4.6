@@ -359,7 +359,12 @@ class BridgeService : Service() {
             }
         }
 
-        override fun shouldRegenAndroidId(packageName: String): Boolean {
+        override fun shouldRegenAndroidId(packageName: String?): Boolean {
+            if (packageName == null) {
+                Logger.w("shouldRegenAndroidId called with null packageName in service", LogSource.BRIDGE)
+                return false
+            }
+
             val regenFile = File(getExternalFilesDir(null), "$packageName.android_id_regen")
             return regenFile.exists().also { exists ->
                 if (exists) {

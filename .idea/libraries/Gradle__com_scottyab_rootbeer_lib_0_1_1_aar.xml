@@ -1,8 +1,8 @@
 <component name="libraryTable">
   <library name="Gradle: com.scottyab:rootbeer-lib:0.1.1@aar" external-system-id="GRADLE">
     <CLASSES>
-      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/a21b442727948d072c4f2c352fd1cadb/transformed/rootbeer-lib-0.1.1/jars/classes.jar!/" />
-      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/a21b442727948d072c4f2c352fd1cadb/transformed/rootbeer-lib-0.1.1/AndroidManifest.xml" />
+      <root url="jar://$USER_HOME$/.gradle/caches/8.11.1/transforms/167809e4cf2eea73008e110ce081bde4/transformed/rootbeer-lib-0.1.1/jars/classes.jar!/" />
+      <root url="file://$USER_HOME$/.gradle/caches/8.11.1/transforms/167809e4cf2eea73008e110ce081bde4/transformed/rootbeer-lib-0.1.1/AndroidManifest.xml" />
     </CLASSES>
     <JAVADOC>
       <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/com.scottyab/rootbeer-lib/0.1.1/f64cc5045562329ccb5f7cf46e460f528d5751bb/rootbeer-lib-0.1.1-javadoc.jar!/" />

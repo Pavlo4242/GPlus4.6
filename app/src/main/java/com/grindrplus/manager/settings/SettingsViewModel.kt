@@ -48,10 +48,309 @@ class SettingsViewModel(
     private val _apiKeyTestLoading = MutableStateFlow(false)
     val apiKeyTestLoading: StateFlow<Boolean> = _apiKeyTestLoading
 
+    private val _hookCategories = MutableStateFlow<List<HookCategory>>(emptyList())
+    val hookCategories: StateFlow<List<HookCategory>> = _hookCategories
+
     fun dismissApiKeyTestDialog() {
         _showApiKeyTestDialog.value = false
     }
 
+
+    // Add this new function to load hook categories:
+    fun loadHookCategories() {
+        viewModelScope.launch {
+            _isLoading.value = true
+
+            try {
+                val hooks = Config.getHooksSettings()
+
+                // Define categories
+                _hookCategories.value = listOf(
+                    HookCategory(
+                        id = "anti_detection",
+                        name = "🛡️ Anti-Detection & Security",
+                        description = "Critical hooks for hiding root/Xposed and preventing detection",
+                        hooks = listOf(
+                            "Comprehensive Anti Detection",
+                            "Anti Detection",
+                            "Detection Diagnostics"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "network",
+                        name = "🌐 Network & Communication",
+                        description = "WebSocket, logging, and network-related hooks",
+                        hooks = listOf(
+                            "Background WebSocket Keep Alive",
+                            "Timber Logging",
+                            "Chat indicators"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "features",
+                        name = "✨ Premium Features",
+                        description = "Enable Unlimited and premium features",
+                        hooks = listOf(
+                            "Enable unlimited",
+                            "Feature granting",
+                            "Unlimited profiles",
+                            "Unlimited albums",
+                            "Video calls"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "privacy",
+                        name = "🔒 Privacy & Tracking",
+                        description = "Disable analytics and profile tracking",
+                        hooks = listOf(
+                            "Profile views",
+                            "Disable analytics",
+                            "Expiring media",
+                            "Local saved phrases"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "ui_behavior",
+                        name = "🎨 UI & Behavior",
+                        description = "Customize app appearance and behavior",
+                        hooks = listOf(
+                            "Status Dialog",
+                            "Disable boosting",
+                            "Disable shuffle",
+                            "Allow screenshots",
+                            "Notification Alerts",
+                            "Favorites",
+                            "Profile details",
+                            "Online indicator",
+                            "Reverse radar tabs"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "location",
+                        name = "📍 Location & Teleport",
+                        description = "Spoof and customize your location",
+                        hooks = listOf(
+                            "Location spoofer"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "chat",
+                        name = "💬 Chat Features",
+                        description = "Chat enhancements and terminal",
+                        hooks = listOf(
+                            "Chat terminal",
+                            "Anti Block",
+                            "Quick block"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    ),
+
+                    HookCategory(
+                        id = "updates",
+                        name = "🔄 Updates & Bans",
+                        description = "Manage app updates and ban detection",
+                        hooks = listOf(
+                            "Disable updates",
+                            "Ban management"
+                        ).mapNotNull { hookName ->
+                            hooks[hookName]?.let { (desc, enabled) ->
+                                HookSettingData(
+                                    name = hookName,
+                                    description = desc,
+                                    isEnabled = enabled,
+                                    subHooks = getSubHooksFor(hookName)
+                                )
+                            }
+                        }
+                    )
+                ).filter { it.hooks.isNotEmpty() }
+
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    // Add function to get sub-hooks for specific hooks
+    private fun getSubHooksFor(hookName: String): List<SubHookData> {
+        return when (hookName) {
+            "Comprehensive Anti Detection" -> listOf(
+                SubHookData(
+                    name = "Activity Finish Protection",
+                    description = "Prevent premature activity exits from detection",
+                    isEnabled = Config.get("sub_hook_comprehensive_activity_finish", true) as Boolean
+                ),
+                SubHookData(
+                    name = "File System Hiding",
+                    description = "Hide root/emulator files from detection",
+                    isEnabled = Config.get("sub_hook_comprehensive_filesystem", true) as Boolean
+                ),
+                SubHookData(
+                    name = "Build Properties Spoofing",
+                    description = "Spoof device build properties",
+                    isEnabled = Config.get("sub_hook_comprehensive_build_props", true) as Boolean
+                ),
+                SubHookData(
+                    name = "Package Manager Hiding",
+                    description = "Hide Xposed/root packages",
+                    isEnabled = Config.get("sub_hook_comprehensive_pkg_mgr", true) as Boolean
+                ),
+                SubHookData(
+                    name = "Native Library Blocking",
+                    description = "Block loading of detection libraries",
+                    isEnabled = Config.get("sub_hook_comprehensive_native_libs", true) as Boolean
+                ),
+                SubHookData(
+                    name = "Play Integrity Blocking",
+                    description = "Block SafetyNet/Play Integrity checks",
+                    isEnabled = Config.get("sub_hook_comprehensive_play_integrity", true) as Boolean
+                )
+            )
+
+            "Anti Detection" -> listOf(
+                SubHookData(
+                    name = "Root Detection",
+                    description = "Hide root from basic checks",
+                    isEnabled = Config.get("sub_hook_anti_detection_root", true) as Boolean
+                ),
+                SubHookData(
+                    name = "Emulator Detection",
+                    description = "Hide emulator from basic checks",
+                    isEnabled = Config.get("sub_hook_anti_detection_emulator", true) as Boolean
+                ),
+                SubHookData(
+                    name = "Sift Science",
+                    description = "Block Sift Science fingerprinting",
+                    isEnabled = Config.get("sub_hook_anti_detection_sift", true) as Boolean
+                )
+            )
+
+            "Background WebSocket Keep Alive" -> listOf(
+                SubHookData(
+                    name = "SafeDK Background Detection",
+                    description = "Spoof SafeDK background state",
+                    isEnabled = Config.get("sub_hook_websocket_safedk", true) as Boolean
+                ),
+                SubHookData(
+                    name = "WebSocket Auto-Reconnect",
+                    description = "Automatically reconnect disconnected WebSockets",
+                    isEnabled = Config.get("sub_hook_websocket_reconnect", true) as Boolean
+                )
+            )
+
+            else -> emptyList()
+        }
+    }
+
+    // Add function to toggle hook
+    fun toggleHook(hookName: String, enabled: Boolean) {
+        viewModelScope.launch {
+            Config.setHookEnabled(hookName, enabled)
+            loadHookCategories()
+        }
+    }
+
+
+    fun toggleSubHook(hookName: String, subHookName: String, enabled: Boolean) {
+        viewModelScope.launch {
+            val configKey = when (hookName) {
+                "Comprehensive Anti Detection" -> when (subHookName) {
+                    "Activity Finish Protection" -> "sub_hook_comprehensive_activity_finish"
+                    "File System Hiding" -> "sub_hook_comprehensive_filesystem"
+                    "Build Properties Spoofing" -> "sub_hook_comprehensive_build_props"
+                    "Package Manager Hiding" -> "sub_hook_comprehensive_pkg_mgr"
+                    "Native Library Blocking" -> "sub_hook_comprehensive_native_libs"
+                    "Play Integrity Blocking" -> "sub_hook_comprehensive_play_integrity"
+                    else -> null
+                }
+                "Anti Detection" -> when (subHookName) {
+                    "Root Detection" -> "sub_hook_anti_detection_root"
+                    "Emulator Detection" -> "sub_hook_anti_detection_emulator"
+                    "Sift Science" -> "sub_hook_anti_detection_sift"
+                    else -> null
+                }
+                "Background WebSocket Keep Alive" -> when (subHookName) {
+                    "SafeDK Background Detection" -> "sub_hook_websocket_safedk"
+                    "WebSocket Auto-Reconnect" -> "sub_hook_websocket_reconnect"
+                    else -> null
+                }
+                else -> null
+            }
+
+            configKey?.let {
+                Config.put(it, enabled)
+                loadHookCategories()
+            }
+        }
+    }
     private fun showApiKeyTestDialog(
         isLoading: Boolean,
         title: String,
@@ -331,7 +630,7 @@ class SettingsViewModel(
                         id = "maps_api_key",
                         title = "Maps API Key",
                         description = "Use a custom Maps API Key when using Grindr Plus with LSPatch",
-                        value = Config.get("maps_api_key", "") as String,
+                        value = Config.get("maps_api_key", "AIzaSyBiSsM5tTzGxaXTBYMkLoVn1revrbOtVEY") as String, // Prepopulated Key
                         onValueChange = {
                             viewModelScope.launch {
                                 Config.put("maps_api_key", it)
@@ -431,11 +730,11 @@ class SettingsViewModel(
                 }
 
                 _settingGroups.value = listOf(
-                    SettingGroup(
+                   /* SettingGroup(
                         id = "hooks",
                         title = "Manage Hooks",
                         settings = hookSettings
-                    ),
+                    ),*/
                     SettingGroup(
                         id = "tasks",
                         title = "Manage Tasks",

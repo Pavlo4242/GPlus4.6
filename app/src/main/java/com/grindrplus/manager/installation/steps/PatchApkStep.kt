@@ -29,92 +29,141 @@ class PatchApkStep(
         const val WRITE_PERMISSION = "android.permission.WRITE_EXTERNAL_STORAGE"
         const val MANAGE_PERMISSION = "android.permission.MANAGE_EXTERNAL_STORAGE"
     }
+
+    var anyApkModified = false
+
     override suspend fun doExecute(context: Context, print: Print) {
         print("Cleaning output directory...")
         outputDir.listFiles()?.forEach { it.delete() }
 
-        val apkFiles = unzipFolder.listFiles()?.filter { it.name.endsWith(".apk") && it.exists() && it.length() > 0 }
+        val hostApks = unzipFolder.listFiles()
+            ?.filter { it.name.endsWith(".apk") && it.exists() && it.length() > 0 }
 
-        if (apkFiles.isNullOrEmpty()) {
-            throw IOException("No valid APK files found to patch")
+        if (hostApks.isNullOrEmpty()) {
+            throw IOException("No valid host APK files found to patch")
         }
 
+        // --- List of ALL APKs that need cleanup/modification ---
+        // This includes the host APKs AND the mod file (which is also an APK)
+        val allApksToModify = hostApks + modFile
+
+        val coroutinesServiceFiles = listOf(
+            "META-INF/services/kotlinx.coroutines.CoroutineExceptionHandler",
+            "META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory"
+        )
+
+        var anyApkModified = false
+
         try {
-            if (customMapsApiKey != null) {
-                print("Attempting to apply custom Maps API key...")
-                val baseApk = apkFiles.find {
-                    it.name == "base.apk" || it.name.startsWith("base.apk-")
-                } ?: apkFiles.first()
+            val baseApkFile = allApksToModify.find { // Find base APK within ALL files
+                it.name == "base.apk" || it.name.startsWith("base.apk-")
+            } ?: hostApks.first() // Fallback to the first host APK
 
-                print("Using ${baseApk.name} for Maps API key modification")
-                val apkModule = ApkModule.loadApkFile(baseApk)
+            print("Starting APK modification process on ${allApksToModify.size} files (Host APKs + Mod File)...")
 
-                // 2. Get the AndroidManifestBlock object
-                val manifest = apkModule.getAndroidManifest()
+            // --- Iterate through ALL APKs for cleanup and host app modifications ---
+            for (apkFile in allApksToModify) {
+                var apkModified = false
+                ApkModule.loadApkFile(apkFile).use { apkModule ->
+                    print("Processing APK: ${apkFile.name}")
 
-
-                // 3. Find the specific <uses-permission> element to remove
-                val permissionNameToRemove = "android.permission.WRITE_EXTERNAL_STORAGE"
-                val permissionToRemove = manifest.getUsesPermission(permissionNameToRemove)
-
-
-                // 4. If the element exists, remove it
-                if (permissionToRemove != null) {
-                    // Get the parent element (<manifest>) and remove the child
-                    val manifestElement = manifest.getManifestElement()
-                    manifestElement.remove(permissionToRemove)
-                    println("Removed permission: $WRITE_PERMISSION")
-                } else {
-                    println("Permission not found: $WRITE_PERMISSION")
-                }
-
-
-                // 5. Add the two new <uses-permission> elements
-                val newPermission1 = "android.permission.WRITE_EXTERNAL_STORAGE"
-                val newPermission2 = "android.permission.MANAGE_EXTERNAL_STORAGE"
-
-                manifest.addUsesPermission(WRITE_PERMISSION)
-                manifest.addUsesPermission(MANAGE_PERMISSION)
-                println("Added permission: $WRITE_PERMISSION")
-                println("Added permission: $MANAGE_PERMISSION")
-
-
-                val metaElements = apkModule.androidManifest.applicationElement.getElements { element ->
-                    element.name == "meta-data"
-                }
-
-                var found = false
-                while (metaElements.hasNext() && !found) {
-                    val element = metaElements.next()
-                    val nameAttr = element.searchAttributeByName("name")
-
-                    if (nameAttr != null && nameAttr.valueString == MAPS_API_KEY_NAME) {
-                        val valueAttr = element.searchAttributeByName("value")
-                        if (valueAttr != null) {
-                            print("Found Maps API key element, replacing with custom key")
-                            valueAttr.setValueAsString(StyleDocument.parseStyledString(customMapsApiKey))
-                            found = true
+                    // A. Coroutine Service File Cleanup (Apply to ALL APKs: Host and Module)
+                    coroutinesServiceFiles.forEach { servicePath ->
+                        try {
+                            // getResFile for reading arbitrary resources like META-INF/services
+                            val resFile = apkModule.getResFile(servicePath)
+                            if (resFile != null) {
+                                print("CRITICAL FIX: Removing conflicting coroutine service file from ${apkFile.name}: $servicePath")
+                                // Delete the file from the APK module
+                                resFile.delete()
+                                apkModified = true
+                            }
+                        } catch (e: Exception) {
+                            // Suppress exceptions here, typically expected if file isn't present
+                            print("Note: Service file not found or failed removal for $servicePath in ${apkFile.name}. Error: ${e.message}")
                         }
                     }
-                }
 
-                if (found) {
-                    print("Successfully replaced Maps API key, saving APK")
-                    apkModule.writeApk(baseApk)
-                } else {
-                    print("Maps API key element not found in manifest, skipping replacement")
+                    // B. Host APK Specific Modifications (Permissions and Maps API Key - Apply ONLY to baseApk)
+                    if (apkFile == baseApkFile) {
+                        val manifest = apkModule.androidManifest
+
+                        // Permissions logic
+                        val permissionToRemove = manifest.getUsesPermission(WRITE_PERMISSION)
+                        if (permissionToRemove != null) {
+                            manifest.manifestElement.remove(permissionToRemove)
+                            print("Removed permission: $WRITE_PERMISSION")
+                            apkModified = true
+                        } else {
+                            print("Permission not found: $WRITE_PERMISSION")
+                        }
+                        manifest.addUsesPermission(WRITE_PERMISSION)
+                        manifest.addUsesPermission(MANAGE_PERMISSION)
+                        print("Added permission: $WRITE_PERMISSION")
+                        print("Added permission: $MANAGE_PERMISSION")
+                        apkModified = true // Permissions are always modified on baseApk
+
+                        // Maps API key logic
+                        if (customMapsApiKey != null) {
+                            print("Attempting to apply custom Maps API key...")
+                            val metaElements =
+                                manifest.applicationElement.getElements { element ->
+                                    element.name == "meta-data"
+                                }
+
+                            var mapsApiKeyFound = false
+                            while (metaElements.hasNext()) {
+                                val element = metaElements.next()
+                                val nameAttr = element.searchAttributeByName("name")
+
+                                if (nameAttr != null && nameAttr.valueString == MAPS_API_KEY_NAME) {
+                                    val valueAttr = element.searchAttributeByName("value")
+                                    if (valueAttr != null) {
+                                        print("Found Maps API key element, replacing with custom key")
+                                        valueAttr.setValueAsString(
+                                            StyleDocument.parseStyledString(
+                                                customMapsApiKey
+                                            )
+                                        )
+                                        mapsApiKeyFound = true
+                                        apkModified = true
+                                    }
+                                }
+                            }
+                            if (!mapsApiKeyFound) {
+                                print("Maps API key element not found in manifest, skipping replacement")
+                            }
+                        }
+                    }
+
+                    // C. Save Changes to APK File
+                    if (apkModified) {
+                        print("Saving modifications to ${apkFile.name}...")
+                        apkModule.writeApk(apkFile)
+                        print("Successfully wrote changes back to ${apkFile.name}")
+                        anyApkModified = true
+                    } else {
+                        print("No modifications needed for ${apkFile.name}, skipping save.")
+                    }
                 }
+            }
+
+            if (!anyApkModified) {
+                print("WARNING: No changes were successfully applied to any APK file.")
             }
 
 
         } catch (e: Exception) {
-            print("Error applying Maps API key: ${e.message}")
+            print("Error during APK modification: ${e.message}")
+            e.printStackTrace()
+            throw e
         }
 
-        if (!embedLSPatch) {
-            print("Skipping LSPatch as embedLSPatch is disabled")
+        // --- LSPATCH EXECUTION ---
 
-            apkFiles.forEach { apkFile ->
+        if (!embedLSPatch) {
+            // ... (rest of embedLSPatch = false logic using hostApks)
+            hostApks.forEach { apkFile ->
                 val outputFile = File(outputDir, apkFile.name)
                 apkFile.copyTo(outputFile, overwrite = true)
                 print("Copied ${apkFile.name} to output directory")
@@ -124,10 +173,8 @@ class PatchApkStep(
             if (copiedFiles.isNullOrEmpty()) {
                 throw IOException("Copying APKs failed - no output files generated")
             }
-
             print("Copying completed successfully")
             print("Copied ${copiedFiles.size} files")
-
             copiedFiles.forEachIndexed { index, file ->
                 print("  ${index + 1}. ${file.name} (${file.length() / 1024}KB)")
             }
@@ -135,9 +182,10 @@ class PatchApkStep(
             return
         }
 
-        print("Starting LSPatch process with ${apkFiles.size} APK files")
+        // LSPatch uses hostApks (from unzipFolder) as target and modFile as module (-m)
+        print("Starting LSPatch process with ${hostApks.size} host APK files...")
 
-        val apkFilePaths = apkFiles.map { it.absolutePath }.toTypedArray()
+        val apkFilePaths = hostApks.map { it.absolutePath }.toTypedArray()
 
         val logger = object : Logger() {
             override fun d(message: String?) {
@@ -153,18 +201,18 @@ class PatchApkStep(
             }
         }
 
-        print("Using mod file: ${modFile.absolutePath}")
+        print("Using module file: ${modFile.absolutePath}")
         print("Using keystore: ${keyStore.absolutePath}")
 
         withContext(Dispatchers.IO) {
             LSPatch(
                 logger,
-                *apkFilePaths,
+                *apkFilePaths, // Host APKs (with cleanup applied)
                 "-o", outputDir.absolutePath,
                 "-l", "2",
                 "-f",
                 "-v",
-                "-m", modFile.absolutePath,
+                "-m", modFile.absolutePath, // Module APK (with cleanup applied)
                 "-k", keyStore.absolutePath,
                 "password",
                 "alias",

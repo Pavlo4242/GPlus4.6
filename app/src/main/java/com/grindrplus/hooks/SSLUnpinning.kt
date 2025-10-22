@@ -15,14 +15,13 @@ import javax.net.ssl.SSLSession
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
 
-@OptIn(ExperimentalStdlibApi::class)
 @SuppressLint("CustomX509TrustManager", "TrustAllX509TrustManager", "BadHostnameVerifier")
 fun sslUnpinning(param: XC_LoadPackage.LoadPackageParam) {
     findAndHookConstructor(
         "okhttp3.OkHttpClient\$Builder",
         param.classLoader,
         object : XC_MethodHook() {
-            override fun afterHookedMethod(param: MethodHookParam<*>) {
+            override fun afterHookedMethod(param: MethodHookParam) {
                 val trustAlLCerts =
                     arrayOf<TrustManager>(
                         object : X509TrustManager {
@@ -77,7 +76,7 @@ fun sslUnpinning(param: XC_LoadPackage.LoadPackageParam) {
         ByteArray::class.java, // byte[] ocspData
         ByteArray::class.java, // byte[] tlsSctData
         object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam<*>) {
+            override fun beforeHookedMethod(param: MethodHookParam) {
                 param.result = param.args[0]
             }
         }

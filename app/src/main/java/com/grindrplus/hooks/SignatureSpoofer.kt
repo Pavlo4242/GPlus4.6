@@ -15,7 +15,6 @@ private const val configRealtimeHttpClient =
 private const val configFetchHttpClient =
     "com.google.firebase.remoteconfig.internal.ConfigFetchHttpClient"
 
-@OptIn(ExperimentalStdlibApi::class)
 fun spoofSignatures(param: XC_LoadPackage.LoadPackageParam) {
 
     listOf(
@@ -28,7 +27,7 @@ fun spoofSignatures(param: XC_LoadPackage.LoadPackageParam) {
             param.classLoader,
             "getFingerprintHashForPackage",
             object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam<*>) {
+                override fun beforeHookedMethod(param: MethodHookParam) {
                     param.result = packageSignature
                 }
             })
@@ -39,27 +38,18 @@ fun spoofSignatures(param: XC_LoadPackage.LoadPackageParam) {
         param.classLoader,
         "d", // getPackageName
         object : XC_MethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam<*>) {
+            override fun beforeHookedMethod(param: MethodHookParam) {
                 param.result = GRINDR_PACKAGE_NAME
             }
         })
 
-    // The Facebook SDK tries to handle the login using the Facebook app in case it is installed.
-    // However, the Facebook app does signature checks with the app that is requesting the authentication,
-    // which ends up making the Facebook server reject with an invalid key hash for the app signature.
-    // Override the Facebook SDK to always handle the login using the web browser, which does not perform
-    // signature checks.
-    //
-    // Always return 0 (no Intent was launched) as the result of trying to authorize with the Facebook app to
-    // make the login fallback to a web browser window.
-    //
     findAndHookMethod(
         "com.facebook.login.KatanaProxyLoginMethodHandler",
         param.classLoader,
         "tryAuthorize",
         XposedHelpers.findClass("com.facebook.login.LoginClient\$Request", param.classLoader),
         object : XC_MethodHook() {
-            override fun afterHookedMethod(param: MethodHookParam<*>) {
+            override fun afterHookedMethod(param: MethodHookParam) {
                 param.result = 0
             }
         }
@@ -74,7 +64,7 @@ fun spoofSignatures(param: XC_LoadPackage.LoadPackageParam) {
             ContextWrapper::class.java,
             "getPackageName",
             object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam<*>) {
+                override fun afterHookedMethod(param: MethodHookParam) {
                     if (isFirebaseInstallationServiceClient()) {
                         param.result = GRINDR_PACKAGE_NAME
                     }
@@ -88,7 +78,7 @@ fun spoofSignatures(param: XC_LoadPackage.LoadPackageParam) {
             "getPackageInfo",
             String::class.java,  // packageName
             object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam<*>) {
+                override fun beforeHookedMethod(param: MethodHookParam) {
                     if ((param.args[0] as String).contains("grindr")) {
                         param.args[0] = GRINDR_PACKAGE_NAME
                     }

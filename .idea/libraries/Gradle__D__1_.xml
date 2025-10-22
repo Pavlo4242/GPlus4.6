@@ -1,9 +1,0 @@
-<component name="libraryTable">
-  <library name="Gradle: D (1)" external-system-id="GRADLE">
-    <CLASSES>
-      <root url="jar://$PROJECT_DIR$/app/libs/LSPosed-api-1.0-SNAPSHOT-javadoc.jar!/" />
-    </CLASSES>
-    <JAVADOC />
-    <SOURCES />
-  </library>
-</component>

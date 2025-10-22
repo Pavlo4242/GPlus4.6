@@ -2,6 +2,7 @@ package com.grindrplus.manager.ui
 
 import android.app.Activity
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
@@ -26,8 +27,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,10 +36,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.grindrplus.core.Config
 import com.grindrplus.core.Constants.GRINDR_PACKAGE_NAME
@@ -51,18 +52,18 @@ import com.grindrplus.manager.installation.Installation
 import com.grindrplus.manager.installation.Print
 import com.grindrplus.manager.ui.components.BannerType
 import com.grindrplus.manager.ui.components.CloneDialog
+import com.grindrplus.manager.ui.components.FileDialog
 import com.grindrplus.manager.ui.components.MessageBanner
 import com.grindrplus.manager.ui.components.VersionSelector
 import com.grindrplus.manager.utils.ErrorHandler
 import com.grindrplus.manager.utils.StorageUtils
+import com.grindrplus.manager.utils.isLSPosed
 import com.scottyab.rootbeer.RootBeer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
-import com.grindrplus.manager.ui.components.FileDialog
-import com.grindrplus.manager.utils.isLSPosed
 
 private val logEntries = mutableStateListOf<LogEntry>()
 
@@ -85,6 +86,53 @@ fun InstallPage(
         viewModel = viewModel
     )
 }
+class InstallationPreferences(private val context: Context) {
+    private val prefs: SharedPreferences by lazy {
+        context.getSharedPreferences("installation_prefs", Context.MODE_PRIVATE)
+    }
+
+    companion object {
+        private const val KEY_LAST_VERSION = "last_version"
+        private const val KEY_LAST_BUNDLE_URI = "last_bundle_uri"
+        private const val KEY_LAST_MOD_URI = "last_mod_uri"
+        private const val KEY_USE_CUSTOM_FILES = "use_custom_files"
+    }
+
+    fun saveLastInstallation(version: String, bundleUri: String?, modUri: String?, useCustomFiles: Boolean) {
+        prefs.edit {
+            putString(KEY_LAST_VERSION, version)
+            putString(KEY_LAST_BUNDLE_URI, bundleUri)
+            putString(KEY_LAST_MOD_URI, modUri)
+            putBoolean(KEY_USE_CUSTOM_FILES, useCustomFiles)
+        }
+    }
+
+    fun getLastInstallation(): LastInstallation? {
+        val version = prefs.getString(KEY_LAST_VERSION, null) ?: return null
+        val bundleUri = prefs.getString(KEY_LAST_BUNDLE_URI, null)
+        val modUri = prefs.getString(KEY_LAST_MOD_URI, null)
+        val useCustomFiles = prefs.getBoolean(KEY_USE_CUSTOM_FILES, false)
+
+        return LastInstallation(version, bundleUri, modUri, useCustomFiles)
+    }
+
+    fun clearLastInstallation() {
+        prefs.edit {
+            remove(KEY_LAST_VERSION)
+            remove(KEY_LAST_BUNDLE_URI)
+            remove(KEY_LAST_MOD_URI)
+            remove(KEY_USE_CUSTOM_FILES)
+        }
+    }
+}
+
+data class LastInstallation(
+    val version: String,
+    val bundleUri: String?,
+    val modUri: String?,
+    val useCustomFiles: Boolean
+)
+
 
 @Composable
 private fun InstallPageContent(
@@ -92,7 +140,6 @@ private fun InstallPageContent(
     innerPadding: PaddingValues,
     viewModel: InstallScreenViewModel
 ) {
-
     // 1. State from ViewModel
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -114,7 +161,10 @@ private fun InstallPageContent(
     var customModUri by remember { mutableStateOf<Uri?>(null) }
     var grindrStatus by remember { mutableStateOf(GrindrInstallationStatus.CHECKING) }
 
-    // 3. Side Effects
+    // 3. Add Preferences Manager
+    val prefs = remember { InstallationPreferences(context) }
+
+    // 4. Side Effects
     val manifestUrl = (Config.get("custom_manifest", DATA_URL) as String).ifBlank { null }
 
     LaunchedEffect(Unit) {
@@ -125,26 +175,60 @@ private fun InstallPageContent(
         grindrStatus = isGrindrInstalled(context)
     }
 
-    // Creates a background task to auto-select the latest version
+    LaunchedEffect(Unit) {
+        val lastInstallation = prefs.getLastInstallation()
+        if (lastInstallation != null) {
+            if (lastInstallation.useCustomFiles) {
+                // Restore custom files selection
+                useCustomFiles = true
+                customVersionName = lastInstallation.version
+                lastInstallation.bundleUri?.let { uriString ->
+                    customBundleUri = Uri.parse(uriString)
+                }
+                lastInstallation.modUri?.let { uriString ->
+                    customModUri = Uri.parse(uriString)
+                }
+                addLog("Restored last custom installation: $customVersionName", LogType.INFO)
+            } else {
+                // Restore version from list
+                val lastVersion = versionData.find { it.modVer == lastInstallation.version }
+                if (lastVersion != null) {
+                    selectedVersion = lastVersion
+                    addLog("Restored last used version: ${lastVersion.modVer}", LogType.INFO)
+                }
+            }
+        }
+    }
+
+    // Modified auto-select logic - only if no last installation was restored
     LaunchedEffect(versionData.size) {
-        if (selectedVersion == null && versionData.isNotEmpty()) {
+        if (selectedVersion == null && !useCustomFiles && versionData.isNotEmpty()) {
             selectedVersion = versionData.first()
             addLog("Auto-selected latest version: ${selectedVersion?.modVer}", LogType.INFO)
         }
     }
 
-    LaunchedEffect(selectedVersion) {
-        if (selectedVersion == null) return@LaunchedEffect
+    LaunchedEffect(selectedVersion, useCustomFiles, customBundleUri, customModUri) {
+        if (useCustomFiles && customBundleUri != null && customModUri != null) {
+            // For custom files, we'll create installation when needed
+        } else if (selectedVersion != null) {
+            val mapsApiKey = (Config.get("maps_api_key", "") as String).ifBlank { null }
+            installation = Installation(
+                context,
+                selectedVersion!!.modVer,
+                selectedVersion!!.modUrl,
+                selectedVersion!!.grindrUrl,
+                mapsApiKey
+            )
 
-        val mapsApiKey = (Config.get("maps_api_key", "") as String).ifBlank { null }
-
-        installation = Installation(
-            context,
-            selectedVersion!!.modVer,
-            selectedVersion!!.modUrl,
-            selectedVersion!!.grindrUrl,
-            mapsApiKey
-        )
+            // Save the selection
+            prefs.saveLastInstallation(
+                selectedVersion!!.modVer,
+                null, // No URIs for standard versions
+                null,
+                false
+            )
+        }
     }
 
     val print: Print = { output ->
@@ -162,6 +246,14 @@ private fun InstallPageContent(
 
         isInstalling = true
         addLog("Starting custom installation with version name: $customVersionName...", LogType.INFO)
+
+        // Save custom file selection
+        prefs.saveLastInstallation(
+            customVersionName,
+            customBundleUri.toString(),
+            customModUri.toString(),
+            true
+        )
 
         activityScope.launch {
             try {
@@ -243,6 +335,15 @@ private fun InstallPageContent(
                 customModUri = modUri
                 useCustomFiles = true
                 showCustomFileDialog = false
+
+                // Save immediately when files are selected
+                prefs.saveLastInstallation(
+                    versionName,
+                    bundleUri.toString(),
+                    modUri.toString(),
+                    true
+                )
+
                 addLog("Custom files selected. Version: $versionName", LogType.INFO)
                 addLog("Bundle: ${bundleUri.lastPathSegment}, Mod: ${modUri.lastPathSegment}", LogType.INFO)
             }

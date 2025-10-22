@@ -1,5 +1,6 @@
-package com.grindrplus.hooks
 
+package com.grindrplus.hooks
+/*
 import com.grindrplus.GrindrPlus
 import com.grindrplus.core.Logger
 import com.grindrplus.core.loge
@@ -106,3 +107,4 @@ class ConversationTracker : Hook(
         }
     }
 }
+*/

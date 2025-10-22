@@ -17,7 +17,6 @@ android {
         val grindrVersionCode = listOf(144041)
         val gitCommitHash = getGitCommitHash() ?: "unknown"
 
-
         applicationId = "com.grindrplus"
         minSdk = 26
         targetSdk = 34
@@ -33,25 +32,13 @@ android {
         buildConfigField(
             "String[]",
             "TARGET_GRINDR_VERSION_NAMES",
-            grindrVersionName.let {
-                it.joinToString(
-                    prefix = "{",
-                    separator = ", ",
-                    postfix = "}"
-                ) { version -> "\"$version\"" }
-            }
+            grindrVersionName.let { it.joinToString(prefix = "{", separator = ", ", postfix = "}") { version -> "\"$version\"" } }
         )
 
         buildConfigField(
             "int[]",
             "TARGET_GRINDR_VERSION_CODES",
-            grindrVersionCode.let {
-                it.joinToString(
-                    prefix = "{",
-                    separator = ", ",
-                    postfix = "}"
-                ) { code -> "$code" }
-            }
+            grindrVersionCode.let { it.joinToString(prefix = "{", separator = ", ", postfix = "}") { code -> "$code" } }
         )
     }
 
@@ -88,49 +75,47 @@ android {
 
     applicationVariants.configureEach {
         outputs.configureEach {
-            val sanitizedVersionName = versionName.replace(Regex("[^a-zA-Z0-9._-]"), "_").trim('_')
+            val sanitizedVersionName = versionName.trim('_')
             (this as BaseVariantOutputImpl).outputFileName =
-                "GPlus_v${sanitizedVersionName}-${name}.apk"
-
-            assembleProvider.get().doLast {
-                file(outputFile).copyTo(
-                    file("D:/Downloads/${if (name == "debug") "NEWFILENAME_DEBUG.APK" else "NEWFILENAME_RELEASE.APK"}"),
-                    true
-                )
-            }
+                "GPLS46${sanitizedVersionName}-${name}.apk"
         }
     }
+}
 
     dependencies {
+        // Core Android dependencies
+        compileOnly("de.robv.android.xposed:api:82")
+
+
         implementation(libs.androidx.core.ktx)
         implementation(libs.androidx.lifecycle.runtime.ktx)
         implementation(libs.androidx.appcompat)
         implementation(libs.androidx.coordinatorlayout)
         implementation(libs.material)
+
+        // Networking and storage
         implementation(libs.square.okhttp)
         implementation(libs.androidx.datastore.preferences)
         implementation(libs.androidx.room.runtime)
-        implementation(libs.androidx.runtime.android)
-        ksp(libs.androidx.room.compiler)
         implementation(libs.androidx.room.ktx)
-        compileOnly(fileTree("libs") { include("*.jar") })
-        implementation(fileTree("libs") { include("lspatch.jar") })
+        ksp(libs.androidx.room.compiler)
 
+        // Compose dependencies
         val composeBom = platform("androidx.compose:compose-bom:2025.02.00")
         implementation(composeBom)
-
         implementation(libs.androidx.material3)
-
-        implementation(libs.androidx.ui.tooling.preview)
-        debugImplementation(libs.androidx.ui.tooling)
-        implementation(libs.androidx.ui.tooling)
-        implementation(libs.androidx.material.icons.core)
-        implementation(libs.androidx.material.icons.extended)
         implementation(libs.androidx.activity.compose)
         implementation(libs.androidx.navigation.compose)
+        implementation(libs.androidx.ui.tooling.preview)
+        debugImplementation(libs.androidx.ui.tooling)
+        implementation(libs.androidx.material.icons.core)
+        implementation(libs.androidx.material.icons.extended)
         implementation(libs.coil.compose)
         implementation(libs.coil.network.okhttp)
+        implementation(libs.coil.gif)
         implementation(libs.compose.markdown)
+
+        // Utility libraries
         implementation(libs.plausible.android.sdk)
         implementation(libs.timber)
         implementation(libs.fetch2)
@@ -142,27 +127,50 @@ android {
             }
         }
         implementation(libs.zipalign.java)
-        implementation(libs.coil.gif)
         implementation(libs.arsclib)
         compileOnly(libs.bcprov.jdk18on)
 
-        // Dependencies for local unit tests (ExampleUnitTest.java)
-        testImplementation("junit:junit:4.13.2")
+        // Kotlin Coroutines - IMPORTANT: Keep test dependencies separate
+        implementation(libs.kotlinx.coroutines.core)
+        implementation(libs.kotlinx.coroutines.android)
 
-        // Dependencies for Android instrumented tests (ExampleInstrumentedTest.java)
+        // Test dependencies - these should NEVER leak into production
+        //testImplementation(libs.kotlinx.coroutines.test)
+        testImplementation("junit:junit:4.13.2")
         androidTestImplementation("androidx.test.ext:junit:1.1.5")
         androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-        androidTestImplementation("androidx.test:runner:1.5.2") // Added to ensure correct AndroidJUnitRunner functionality
+        androidTestImplementation("androidx.test:runner:1.5.2")
 
+        // LSPatch for module integration changed from implementation
+        compileOnly(fileTree("libs") { include("lspatch.jar") })
     }
-}
+
+    val kotlinxCoroutinesVersion = "1.10.2"
+    val kotlinStdlibVersion = "1.9.23" // Align with your Kotlin plugin version
+
+    configurations.all {
+        resolutionStrategy {
+            // Enforce single version for Kotlin Stdlib
+            // Use a version compatible with your project's Kotlin compiler/plugin version
+            force("org.jetbrains.kotlin:kotlin-stdlib:$kotlinStdlibVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinStdlibVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlinStdlibVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-common:$kotlinStdlibVersion")
+
+            // Enforce single version for Coroutines (to fix the 1.5.0 vs 1.10.2 conflict)
+            force("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:$kotlinxCoroutinesVersion")
+            force("org.jetbrains.kotlinx:kotlinx-coroutines-android:$kotlinxCoroutinesVersion")
+        }
+    }
+
     tasks.register("setupLSPatch") {
         doLast {
             val jarUrl =
-                Regex("https:\\/\\/nightly\\.link\\/JingMatrix\\/LSPatch\\/workflows\\/main\\/master\\/lspatch-debug-[^.]+\\.zip").find(
-                    URI("https://nightly.link/JingMatrix/LSPatch/workflows/main/master?preview").toURL()
-                        .readText()
-                )!!.value
+                Regex("https://nightly\\.link/JingMatrix/LSPatch/workflows/main/master/lspatch-debug-[^.]++.zip")
+                    .find(
+                        URI("https://nightly.link/JingMatrix/LSPatch/workflows/main/master?preview").toURL()
+                            .readText()
+                    )!!.value
 
             providers.exec {
                 commandLine("mkdir", "-p", "/tmp/lspatch")
@@ -194,23 +202,19 @@ android {
                 commandLine("mv", jarPath, "${project.projectDir}/libs/lspatch.jar")
             }.result.get()
 
-            providers.exec {
-                commandLine(
-                    "zip",
-                    "-d",
-                    "${project.projectDir}/libs/lspatch.jar",
-                    "com/google/common/util/concurrent/ListenableFuture.class"
-                )
-            }.result.get()
-
-            providers.exec {
-                commandLine(
-                    "zip",
-                    "-d",
-                    "${project.projectDir}/libs/lspatch.jar",
-                    "com/google/errorprone/annotations/*"
-                )
-            }.result.get()
+            // Clean up ALL conflicting classes in lspatch.jar
+            listOf(
+                "com/google/common/util/concurrent/ListenableFuture.class",
+                "com/google/errorprone/annotations/*",
+                "META-INF/services/kotlinx.coroutines.CoroutineExceptionHandler",
+                "META-INF/services/kotlinx.coroutines.internal.MainDispatcherFactory",
+                "kotlinx/coroutines/test/*"
+            ).forEach { pattern ->
+                providers.exec {
+                    commandLine("zip", "-d", "${project.projectDir}/libs/lspatch.jar", pattern)
+                    isIgnoreExitValue = true  // Some patterns might not exist
+                }.result.get()
+            }
         }
     }
 

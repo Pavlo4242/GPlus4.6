@@ -5,6 +5,7 @@ import com.grindrplus.core.Logger
 import com.grindrplus.core.logd
 import com.grindrplus.core.loge
 import com.grindrplus.utils.Hook
+import com.grindrplus.hooks.LocationSpoofer
 import com.grindrplus.utils.HookStage
 import com.grindrplus.utils.hook
 import com.grindrplus.utils.hookConstructor

@@ -96,6 +96,17 @@ fun SettingsScreen(
     val apiKeyTestMessage by viewModel.apiKeyTestMessage.collectAsState()
     val apiKeyTestRawResponse by viewModel.apiKeyTestRawResponse.collectAsState()
     val apiKeyTestLoading by viewModel.apiKeyTestLoading.collectAsState()
+    var showHooksScreen by remember { mutableStateOf(false) }
+
+    if (showHooksScreen) {
+        HooksSettingsScreen(
+            onBack = {
+                showHooksScreen = false
+                viewModel.loadSettings() // Reload main settings
+            }
+        )
+        return
+    }
 
     if (debugLogsScreen) {
         DebugLogsScreen(
@@ -256,6 +267,47 @@ fun SettingsScreen(
                     bottom = 100.dp
                 )
             ) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        tonalElevation = 2.dp,
+                        onClick = {
+                            viewModel.loadHookCategories()
+                            showHooksScreen = true
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "🎛️ Advanced Hook Settings",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "Configure hooks by category with fine-grained control",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Open hooks settings",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+
                 item {
                     PackageSelector(
                         onPackageSelected = { packageName ->

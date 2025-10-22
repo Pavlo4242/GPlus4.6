@@ -23,8 +23,10 @@ class Interceptor(
     private val userSession: Any,
     private val userAgent: Any,
     private val deviceInfo: Any
+
 ) : Interceptor {
 
+    internal val hardcodedUserAgent = "grindr3/25.16.0.144399;144399;Free;Android 15;SM-A166P;samsung"
     private fun modifyRequest(originalRequest: Request): Request {
         // search for 'getJwt().length() > 0 &&' in userSession
         val isLoggedIn = invokeMethodSafe(userSession, "s") as? Boolean ?: false
@@ -77,7 +79,7 @@ class Interceptor(
         val userAgentString = invokeMethodSafe(userAgent, "a") as? String ?: "Grindr"
 
         builder.header("Accept", "application/json; charset=UTF-8")
-        builder.header("User-Agent", userAgentString)
+        builder.header("User-Agent", hardcodedUserAgent)
         builder.header("L-Locale", "en_US")
         builder.header("Accept-language", "en-US")
 
