@@ -629,8 +629,8 @@ class SettingsViewModel(
                     TextSettingWithButtons(
                         id = "maps_api_key",
                         title = "Maps API Key",
-                        description = "Use a custom Maps API Key when using Grindr Plus with LSPatch",
-                        value = Config.get("maps_api_key", "AIzaSyBiSsM5tTzGxaXTBYMkLoVn1revrbOtVEY") as String, // Prepopulated Key
+                        description = "Use a custom Maps API Key when using Grindr Plus with LSPatchAIzaSyBiSsM5tTzGx",
+                        value = Config.get("maps_api_key", "aXTBYMkLoVn1revrbOtVEY") as String, // Prepopulated Key
                         onValueChange = {
                             viewModelScope.launch {
                                 Config.put("maps_api_key", it)
